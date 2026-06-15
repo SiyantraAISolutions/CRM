@@ -29,6 +29,11 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
+  // Exclude public webhook endpoints from auth checks
+  if (pathname.startsWith('/api/webhooks/')) {
+    return supabaseResponse
+  }
+
   // Fast path check: if there is no Supabase auth token cookie, the user is unauthenticated
   const hasAuthCookie = request.cookies.getAll().some(
     (c) => c.name.startsWith('sb-') && c.name.endsWith('-auth-token')
