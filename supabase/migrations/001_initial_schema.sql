@@ -58,14 +58,8 @@ create table public.brands (
 
 -- Seed brands
 insert into public.brands (code, name, domain) values
-  ('NI2', 'Nino Apply', 'ninoapply.com'),
-  ('NI1', 'NI Numbers', 'ninumbers.com'),
-  ('OLR', 'Online Land Registry', 'onlinelandregistry.org.uk'),
-  ('OLR2-COM', 'Online Land Registry (.com)', 'onlinelandregistry.com'),
-  ('RCS', 'Replacement Certificate Services', 'replacementcertificateservices.co.uk'),
-  ('DBS', 'DBS Check Online', 'dbscheckonline.co.uk'),
-  ('LR', 'Land Registry', 'landregistry.co.uk'),
-  ('DBAP', 'DBS Application', 'dbsapplication.co.uk');
+  ('OLR', 'Online Land Registry', 'onlinelandregistry.uk'),
+  ('LRT', 'Land Registry Transfers', 'landregistrytransfers.com');
 
 -- =============================================
 -- FORM TYPES
@@ -83,22 +77,22 @@ create table public.form_types (
   created_at timestamptz default now()
 );
 
--- Seed form types (OLR)
+-- Seed form types (OLR and LRT)
 insert into public.form_types (code, name, brand_ids, base_price, fee_scale) values
   ('TITLE_REGISTER', 'Title Register', array(select id from brands where code = 'OLR'), 3.00, null),
   ('TITLE_PLAN', 'Title Plan', array(select id from brands where code = 'OLR'), 3.00, null),
   ('MAP_SEARCH', 'Map Search / Deed Search', array(select id from brands where code = 'OLR'), 3.00, null),
   ('PROPERTY_OWNERSHIP', 'Property Ownership', array(select id from brands where code = 'OLR'), 3.00, null),
-  ('FR1', 'FR1 First Registration', array(select id from brands where code = 'OLR'), 540.00, 'scale2'),
-  ('AP1', 'AP1 Name Change', array(select id from brands where code = 'OLR'), 540.00, 'scale1'),
-  ('DJP', 'DJP Death of Joint Proprietor', array(select id from brands where code = 'OLR'), 540.00, 'scale2'),
-  ('TR1', 'TR1 Add/Remove Proprietor', array(select id from brands where code = 'OLR'), 540.00, 'scale1'),
-  ('TP1', 'TP1 Transfer of Part', array(select id from brands where code = 'OLR'), 540.00, 'scale1'),
-  ('COG1', 'COG1 Changing Registered Owners Address', array(select id from brands where code = 'OLR'), 540.00, 'scale1'),
-  ('SEV', 'SEV Joint Tenants to Tenants in Common', array(select id from brands where code = 'OLR'), 540.00, 'scale1'),
-  ('RX3', 'RX3 Remove Restriction', array(select id from brands where code = 'OLR'), 540.00, 'scale1'),
-  ('ADV1', 'ADV1 Adverse Possession', array(select id from brands where code = 'OLR'), 540.00, 'scale1'),
-  ('AS1', 'AS1 Assent of Whole', array(select id from brands where code = 'OLR'), 540.00, 'scale2');
+  ('FR1', 'FR1 First Registration', array(select id from brands where code = 'LRT'), 540.00, 'scale2'),
+  ('AP1', 'AP1 Name Change', array(select id from brands where code = 'LRT'), 540.00, 'scale1'),
+  ('DJP', 'DJP Death of Joint Proprietor', array(select id from brands where code = 'LRT'), 540.00, 'scale2'),
+  ('TR1', 'TR1 Add/Remove Proprietor', array(select id from brands where code = 'LRT'), 540.00, 'scale1'),
+  ('TP1', 'TP1 Transfer of Part', array(select id from brands where code = 'LRT'), 540.00, 'scale1'),
+  ('COG1', 'COG1 Changing Registered Owners Address', array(select id from brands where code = 'LRT'), 540.00, 'scale1'),
+  ('SEV', 'SEV Joint Tenants to Tenants in Common', array(select id from brands where code = 'LRT'), 540.00, 'scale1'),
+  ('RX3', 'RX3 Remove Restriction', array(select id from brands where code = 'LRT'), 540.00, 'scale1'),
+  ('ADV1', 'ADV1 Adverse Possession', array(select id from brands where code = 'LRT'), 540.00, 'scale1'),
+  ('AS1', 'AS1 Assent of Whole', array(select id from brands where code = 'LRT'), 540.00, 'scale2');
 
 -- =============================================
 -- ORDERS
