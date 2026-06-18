@@ -22,10 +22,11 @@ export default async function DirectorPage({ searchParams }: Props) {
 
   const now = new Date()
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
 
-  let ordersQuery = supabase.from('orders').select('id, status, amount_total, created_at, business_id').gte('created_at', thirtyDaysAgo)
+  let ordersQuery = supabase.from('orders').select('id, status, amount_total, created_at, business_id, user_id').gte('created_at', thirtyDaysAgo)
   let paymentsQuery = supabase.from('payments').select('id, amount, status, created_at, business_id')
-  let enquiriesQuery = supabase.from('enquiries').select('id, pipeline_stage, created_at, business_id').gte('created_at', thirtyDaysAgo)
+  let enquiriesQuery = supabase.from('enquiries').select('id, pipeline_stage, created_at, business_id, assigned_to').gte('created_at', thirtyDaysAgo)
 
   if (activeBusinessId !== 'all') {
     ordersQuery = ordersQuery.eq('business_id', activeBusinessId)
@@ -33,11 +34,22 @@ export default async function DirectorPage({ searchParams }: Props) {
     enquiriesQuery = enquiriesQuery.eq('business_id', activeBusinessId)
   }
 
-  const [{ data: ordersLast30 }, { data: payments }, { data: enquiries }, { data: businesses }] = await Promise.all([
+  const [
+    { data: ordersLast30 },
+    { data: payments },
+    { data: enquiries },
+    { data: businesses },
+    { data: teamMembers },
+    { data: allTasks },
+    { data: activityLogs },
+  ] = await Promise.all([
     ordersQuery,
     paymentsQuery,
     enquiriesQuery,
     supabase.from('businesses').select('id, name, colour').eq('status', 'active'),
+    supabase.from('users').select('id, full_name, role, sales_target, current_status, status_started_at, avatar_url'),
+    supabase.from('tasks').select('id, title, description, assigned_to, created_by, due_at, status, priority, created_at'),
+    supabase.from('activity_logs').select('id, user_id, status, started_at, ended_at').gte('created_at', thirtyDaysAgo)
   ])
 
   return (
@@ -50,6 +62,9 @@ export default async function DirectorPage({ searchParams }: Props) {
         payments={payments ?? []}
         enquiries={enquiries ?? []}
         businesses={businesses ?? []}
+        teamMembers={teamMembers ?? []}
+        tasks={allTasks ?? []}
+        activityLogs={activityLogs ?? []}
       />
     </div>
   )

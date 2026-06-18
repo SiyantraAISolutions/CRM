@@ -214,25 +214,10 @@ create table public.kb_articles (
 
 -- Seed KB articles
 insert into public.kb_articles (section, title, body, sort_order) values
-  ('sales', 'Prefixes on Phone', 'NI2 = Nino Apply
-NI1 = NI Numbers
-OLR = Online Land Registry
-OLR2-COM = Online Land Registry (.com)
-RCS = Replacement Certificate Services
-DBS = DBS Check Online
-LR = Land Registry
-DBAP = DBS Application', 1),
-  ('sales', 'Government', 'Government contact information and procedures for handling government-related enquiries.', 2),
-  ('sales', 'Sales Techniques and Tips', 'Key sales techniques for handling inbound calls and converting enquiries to orders.', 3),
-  ('sales', 'Bank Details', 'Per-brand bank account details for manual payment processing.', 4),
-  ('sales', 'Timescales for our services', 'Standard and fast track timescales for each service type.', 5),
-  ('admin', 'Our Email Address', 'Per-brand enquiry and refund email addresses:
-
-NinoApply: enquiries@ninoapply.com / refunds@ninoapply.com
-NI Numbers: enquiries@ninumbers.com / refunds@ninumbers.com
-Online Land Registry: enquiries@onlinelandregistry.org.uk / refunds@onlinelandregistry.org.uk
-RCS: enquiries@replacementcertificateservices.co.uk
-DBS: enquiries@dbscheckonline.co.uk', 1),
+  ('sales', 'Government', 'Government contact information and procedures for handling government-related enquiries.', 1),
+  ('sales', 'Sales Techniques and Tips', 'Key sales techniques for handling inbound calls and converting enquiries to orders.', 2),
+  ('sales', 'Bank Details', 'Per-brand bank account details for manual payment processing.', 3),
+  ('sales', 'Timescales for our services', 'Standard and fast track timescales for each service type.', 4),
   ('admin', 'Gov Numbers', 'Government helpline numbers for each service type.', 2),
   ('admin', 'Our Numbers', 'Internal phone numbers and extensions for each department.', 3),
   ('admin', 'Break Times', 'Approved break times and rotation schedule for the team.', 4),

@@ -29,11 +29,15 @@ export default function HelpRequestsClient({ brands }: { brands: Brand[] }) {
       .order('created_at', { ascending: false })
       .range((page - 1) * 10, page * 10 - 1)
 
-    if (activeBusinessId !== 'all') q = q.eq('business_id', activeBusinessId)
+    if (activeBusinessId !== 'all') {
+      // Map global activeBusinessId to brand_id since help_requests uses brand_id
+      q = q.eq('brand_id', activeBusinessId)
+    }
     if (brandFilter !== 'all') q = q.eq('brand_id', brandFilter)
     if (search) q = q.or(`customer_name.ilike.%${search}%,customer_email.ilike.%${search}%,subject.ilike.%${search}%`)
 
-    const { data: d, count } = await q
+    const { data: d, count, error } = await q
+    if (error) console.error("Error fetching help requests:", error);
     setData(d ?? [])
     setTotal(count ?? 0)
     setLoading(false)

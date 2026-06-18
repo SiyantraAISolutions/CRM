@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Target, TrendingUp, Users, CalendarClock, Clock, ArrowRight } from 'lucide-react'
+import { Target, TrendingUp, Users, CalendarClock, Clock, ArrowRight, UserCheck, CheckCircle2 } from 'lucide-react'
 import { formatCurrency, cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
@@ -25,10 +25,10 @@ interface Props {
 }
 
 const activityButtons: { status: ActivityStatus; label: string; colorClass: string; activeClass: string }[] = [
-  { status: 'break', label: 'Break', colorClass: 'border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100', activeClass: 'bg-amber-600 border-amber-600 text-white' },
-  { status: 'lunch', label: 'Lunch', colorClass: 'border-orange-200 text-orange-700 bg-orange-50 hover:bg-orange-100', activeClass: 'bg-orange-600 border-orange-600 text-white' },
-  { status: 'toilet', label: 'Toilet', colorClass: 'border-gray-200 text-gray-700 bg-gray-50 hover:bg-gray-100', activeClass: 'bg-gray-600 border-gray-600 text-white' },
-  { status: 'training', label: 'Training', colorClass: 'border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100', activeClass: 'bg-indigo-600 border-indigo-600 text-white' },
+  { status: 'break', label: 'Break', colorClass: 'border-purple-100 text-slate-600 bg-white hover:bg-purple-50 hover:border-purple-200', activeClass: 'bg-amber-50 border-amber-300 text-amber-700 shadow-sm' },
+  { status: 'lunch', label: 'Lunch', colorClass: 'border-purple-100 text-slate-600 bg-white hover:bg-purple-50 hover:border-purple-200', activeClass: 'bg-orange-50 border-orange-300 text-orange-700 shadow-sm' },
+  { status: 'toilet', label: 'Toilet', colorClass: 'border-purple-100 text-slate-600 bg-white hover:bg-purple-50 hover:border-purple-200', activeClass: 'bg-slate-100 border-slate-300 text-slate-700 shadow-sm' },
+  { status: 'training', label: 'Training', colorClass: 'border-purple-100 text-slate-600 bg-white hover:bg-purple-50 hover:border-purple-200', activeClass: 'bg-purple-50 border-purple-300 text-purple-700 shadow-sm' },
 ]
 
 export default function SalesDashboardClient({
@@ -55,101 +55,131 @@ export default function SalesDashboardClient({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50">
+    <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-[#f8f7fc] text-slate-900">
+      
       {/* Welcome banner */}
-      <div className="bg-gradient-to-r from-emerald-600 to-teal-700 rounded-xl px-6 py-5 text-white shadow-md flex items-center justify-between">
-        <div className="space-y-1">
-          <h1 className="text-lg font-bold tracking-tight">Good to see you, {userName}</h1>
-          <p className="text-xs text-emerald-100/90 font-medium">Keep track of your leads, follow ups, and hit your monthly target.</p>
-        </div>
-        <div className="flex items-center gap-1.5 bg-white/10 px-3 py-1.5 rounded-lg text-xs font-semibold backdrop-blur-sm border border-white/10">
-          <TrendingUp className="h-3.5 w-3.5" />
-          KWS Management Services CRM
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 via-purple-700 to-indigo-800 px-8 py-8 shadow-xl">
+        <div className="absolute right-0 top-0 -mt-12 -mr-12 h-80 w-80 rounded-full bg-white/10 blur-3xl pointer-events-none" />
+        <div className="absolute left-1/3 bottom-0 -mb-12 h-64 w-64 rounded-full bg-purple-300/10 blur-3xl pointer-events-none" />
+        
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 border border-white/20 text-xs font-semibold text-white/90">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Sales Desk Active
+            </div>
+            <h1 className="text-2xl font-black tracking-tight text-white">
+              Good day, {userName}
+            </h1>
+            <p className="text-sm text-purple-100 max-w-xl font-medium leading-relaxed">
+              Track and convert incoming customer leads, monitor scheduled call backs, and manage your monthly conversion milestones.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/15 self-start md:self-auto">
+            <TrendingUp className="h-4 w-4 text-purple-200 animate-pulse" />
+            <div className="text-left">
+              <div className="text-[10px] text-purple-200 font-bold uppercase tracking-wider">Target Status</div>
+              <div className="text-xs font-bold text-white">{targetPct}% Cleared</div>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* KPI row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-        <div className="bg-white border border-slate-100 rounded-xl p-5 hover:shadow-md transition-all duration-300 flex items-center gap-4 group">
-          <div className="rounded-xl bg-blue-50 p-3 group-hover:scale-105 transition-transform"><Users className="h-5 w-5 text-blue-600" /></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-white border border-purple-100 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300 flex items-center gap-4 group">
+          <div className="rounded-xl bg-blue-50 border border-blue-100 p-3.5 group-hover:scale-105 transition-transform"><Users className="h-5 w-5 text-blue-600" /></div>
           <div>
-            <div className="text-2xl font-bold text-slate-800 tracking-tight">{activeLeads}</div>
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mt-0.5">Active Leads</div>
+            <div className="text-2xl font-black text-slate-900 tracking-tight group-hover:text-purple-700 transition-colors">{activeLeads}</div>
+            <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest mt-1">Active Leads</div>
           </div>
         </div>
 
-        <div className="bg-white border border-slate-100 rounded-xl p-5 hover:shadow-md transition-all duration-300 flex items-center gap-4 group">
-          <div className="rounded-xl bg-emerald-50 p-3 group-hover:scale-105 transition-transform"><TrendingUp className="h-5 w-5 text-emerald-600" /></div>
+        <div className="bg-white border border-purple-100 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300 flex items-center gap-4 group">
+          <div className="rounded-xl bg-violet-50 border border-violet-100 p-3.5 group-hover:scale-105 transition-transform"><UserCheck className="h-5 w-5 text-violet-600" /></div>
           <div>
-            <div className="text-2xl font-bold text-slate-800 tracking-tight">{convertedToday}</div>
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mt-0.5">Converted Today</div>
+            <div className="text-2xl font-black text-slate-900 tracking-tight group-hover:text-violet-700 transition-colors">{convertedToday}</div>
+            <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest mt-1">Converted Today</div>
           </div>
         </div>
 
-        <div className="bg-white border border-slate-100 rounded-xl p-5 hover:shadow-md transition-all duration-300 flex items-center gap-4 group">
-          <div className="rounded-xl bg-teal-50 p-3 group-hover:scale-105 transition-transform"><Target className="h-5 w-5 text-teal-600" /></div>
+        <div className="bg-white border border-purple-100 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300 flex items-center gap-4 group">
+          <div className="rounded-xl bg-purple-50 border border-purple-100 p-3.5 group-hover:scale-105 transition-transform"><TrendingUp className="h-5 w-5 text-purple-600" /></div>
           <div>
-            <div className="text-2xl font-bold text-slate-800 tracking-tight">{formatCurrency(salesTotalMonth)}</div>
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mt-0.5">Sales This Month</div>
+            <div className="text-2xl font-black text-slate-900 tracking-tight group-hover:text-purple-700 transition-colors">{formatCurrency(salesTotalMonth)}</div>
+            <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest mt-1">Sales (Month)</div>
           </div>
         </div>
 
-        <div className="bg-white border border-slate-100 rounded-xl p-5 hover:shadow-md transition-all duration-300 flex items-center gap-4 group">
-          <div className="rounded-xl bg-amber-50 p-3 group-hover:scale-105 transition-transform"><Target className="h-5 w-5 text-amber-600" /></div>
+        <div className="bg-white border border-purple-100 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300 flex items-center gap-4 group">
+          <div className="rounded-xl bg-amber-50 border border-amber-100 p-3.5 group-hover:scale-105 transition-transform"><Target className="h-5 w-5 text-amber-600" /></div>
           <div>
-            <div className="text-2xl font-bold text-slate-800 tracking-tight">
+            <div className="text-2xl font-black text-slate-900 tracking-tight group-hover:text-amber-700 transition-colors">
               {salesTargetMonth > 0 ? formatCurrency(salesTargetMonth) : '—'}
             </div>
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mt-0.5">Monthly Target</div>
+            <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest mt-1">Monthly Target</div>
           </div>
         </div>
       </div>
 
       {/* Target progress */}
       {salesTargetMonth > 0 && (
-        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-semibold text-slate-700">Monthly Target Progress</span>
-            <span className="text-sm font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">{targetPct}%</span>
+        <div className="bg-white border border-purple-100 rounded-2xl shadow-sm p-6 hover:shadow-md transition-all duration-300">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <span className="text-xs font-bold text-slate-800 block">Monthly Target Progress</span>
+              <span className="text-[11px] text-slate-500 font-medium">Accumulated sales value vs target</span>
+            </div>
+            <span className="text-[10px] font-black text-purple-700 bg-purple-50 px-3 py-1 rounded-lg border border-purple-200">{targetPct}% Complete</span>
           </div>
-          <div className="h-3 rounded-full bg-slate-100 overflow-hidden border border-slate-50">
+          <div className="h-3.5 rounded-full bg-slate-100 overflow-hidden border border-slate-200 p-[2px]">
             <div
-              className={cn('h-full rounded-full transition-all duration-500 shadow-sm', targetPct >= 100 ? 'bg-emerald-500' : 'bg-gradient-to-r from-blue-500 to-indigo-600')}
+              className={cn('h-full rounded-full transition-all duration-500', targetPct >= 100 ? 'bg-emerald-500' : 'bg-gradient-to-r from-purple-500 to-violet-500')}
               style={{ width: `${targetPct}%` }}
             />
           </div>
-          <div className="text-xs font-medium text-slate-400 mt-2">
+          <div className="text-xs font-semibold text-slate-500 mt-2.5">
             {formatCurrency(salesTotalMonth)} completed of {formatCurrency(salesTargetMonth)} target
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
         {/* Follow-ups due today */}
-        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-100 shadow-sm p-6 flex flex-col">
-          <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-2">
-              <CalendarClock className="h-4.5 w-4.5 text-slate-500" />
-              <h2 className="text-sm font-semibold text-slate-800 tracking-tight">Follow-ups Today</h2>
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-purple-100 shadow-sm p-6 hover:shadow-md transition-all duration-300 flex flex-col">
+          <div className="flex items-center justify-between mb-6 border-b border-purple-50 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-violet-50 border border-violet-100 text-violet-600">
+                <CalendarClock className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 tracking-tight">Follow-ups Today</h2>
+                <p className="text-[11px] text-slate-500 font-medium">Scheduled callback reminders and customer touchpoints</p>
+              </div>
             </div>
-            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 bg-slate-100 px-2 py-0.5 rounded">Action required</span>
+            <span className="text-[9px] uppercase font-bold tracking-wider text-slate-600 bg-slate-50 px-2.5 py-1 rounded border border-slate-200">Action required</span>
           </div>
 
-          <div className="flex-1 space-y-3 overflow-y-auto max-h-[300px] pr-2">
+          <div className="flex-1 space-y-3.5 overflow-y-auto max-h-[320px] pr-1 scrollbar-thin">
             {followUps.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-slate-400 text-sm">
-                <CalendarClock className="h-8 w-8 text-slate-300 mb-2" />
-                <p>All clean! No follow-ups scheduled for today.</p>
+              <div className="flex flex-col items-center justify-center py-12 text-xs gap-2">
+                <div className="p-3 rounded-full bg-slate-50 text-slate-400">
+                  <CheckCircle2 className="h-8 w-8" />
+                </div>
+                <p className="font-semibold text-slate-600">All Clean!</p>
+                <p className="text-[11px] text-slate-500">No follow-ups scheduled for today.</p>
               </div>
             ) : (
               followUps.map(f => (
-                <div key={f.id} className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-3 hover:bg-slate-50/50 transition-colors">
+                <div key={f.id} className="flex items-center justify-between rounded-xl border border-purple-100 px-4 py-3.5 hover:bg-purple-50/40 transition-colors">
                   <div>
-                    <div className="text-sm font-bold text-slate-800">{f.customer_name ?? 'Unknown'}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">{f.email}</div>
+                    <div className="text-xs font-bold text-slate-800">{f.customer_name ?? 'Unknown'}</div>
+                    <div className="text-[11px] text-slate-500 mt-1 font-medium">{f.email}</div>
                   </div>
                   {f.follow_up_at && (
-                    <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-600 rounded-lg">
+                    <span className="text-[10px] font-bold px-3 py-1.5 bg-purple-50 text-purple-700 rounded-xl border border-purple-200 shadow-sm flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-purple-600" />
                       {new Date(f.follow_up_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   )}
@@ -160,39 +190,44 @@ export default function SalesDashboardClient({
         </div>
 
         {/* Activity controls */}
-        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-6 flex flex-col">
-          <div className="flex items-center gap-2 mb-5">
-            <Clock className="h-4.5 w-4.5 text-slate-500" />
-            <h2 className="text-sm font-semibold text-slate-800 tracking-tight">Session Activity</h2>
+        <div className="bg-white rounded-2xl border border-purple-100 shadow-sm p-6 hover:shadow-md transition-all duration-300 flex flex-col">
+          <div className="flex items-center gap-3 mb-6 border-b border-purple-50 pb-4">
+            <div className="p-2 rounded-lg bg-purple-50 text-purple-600 border border-purple-100">
+              <Clock className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight">Presence Management</h2>
+              <p className="text-[11px] text-slate-500 font-medium">Configure your active operational presence</p>
+            </div>
           </div>
 
           {activeStatus ? (
-            <div className="mb-4 rounded-xl border border-amber-100 bg-amber-50/50 p-4 text-sm text-amber-800">
-              <div className="flex items-center gap-2">
+            <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-[11px] text-amber-800 shadow-sm">
+              <div className="flex items-center gap-2 font-bold">
                 <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                 </span>
-                <span>Current Status: <strong className="capitalize">{activeStatus}</strong></span>
+                <span>Active Break State: <strong className="capitalize text-amber-900">{activeStatus}</strong></span>
               </div>
-              {statusStart && <div className="mt-1.5 text-xs text-amber-500 font-medium">since {statusStart.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>}
+              {statusStart && <div className="mt-1.5 text-amber-600 font-medium">Timer active since {statusStart.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>}
             </div>
           ) : (
-            <div className="mb-4 rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 text-sm text-emerald-800 flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-emerald-500" />
-              <span>Available & Receiving Leads</span>
+            <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-[11px] text-emerald-800 flex items-center gap-2.5 shadow-sm font-semibold">
+              <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Available & Routing Inbound Leads</span>
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-2 flex-1 justify-center items-center">
+          <div className="grid grid-cols-2 gap-3 flex-1 justify-center items-center">
             {activityButtons.map(btn => (
               <button
                 key={btn.status}
                 onClick={() => handleActivity(btn.status)}
                 className={cn(
-                  'py-3 rounded-xl text-xs font-semibold border transition-all duration-200 cursor-pointer text-center',
+                  'py-3.5 rounded-xl text-xs font-bold border transition-all duration-200 cursor-pointer text-center',
                   activeStatus === btn.status
-                    ? btn.activeClass + ' shadow-sm scale-[0.98]'
+                    ? btn.activeClass + ' scale-[0.98]'
                     : btn.colorClass
                 )}
               >
@@ -203,9 +238,9 @@ export default function SalesDashboardClient({
             {activeStatus && (
               <button
                 onClick={() => handleActivity(activeStatus)}
-                className="col-span-2 w-full mt-3 py-3 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors cursor-pointer shadow-sm shadow-emerald-100 flex items-center justify-center gap-1.5"
+                className="col-span-2 w-full mt-3 py-3.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
               >
-                Back to Available <ArrowRight className="h-3.5 w-3.5" />
+                Back to Available <ArrowRight className="h-4 w-4" />
               </button>
             )}
           </div>

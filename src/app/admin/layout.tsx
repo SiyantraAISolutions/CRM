@@ -18,18 +18,18 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <BusinessProvider>
-      <div className="flex h-screen w-screen overflow-hidden bg-surface-gray-1">
+      <div className="flex h-screen w-screen overflow-hidden bg-[#f8f7fc]">
         <div className="h-full flex-shrink-0">
           <Sidebar userRole={userRole} />
         </div>
-        <div className="flex flex-1 flex-col h-full overflow-hidden bg-white">
+        <div className="flex flex-1 flex-col h-full overflow-hidden bg-[#f8f7fc]">
           <TopBar
             role={userRole}
             userName={userName}
             userEmail={userEmail}
             notificationCount={0}
           />
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden bg-[#f8f7fc]">
             {children}
           </div>
         </div>

@@ -4,19 +4,16 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { useBusiness } from '@/context/BusinessContext'
 
-const DEPARTMENTS = ['Sales', 'Admin', 'Finance', 'Tech', 'Customer Service']
+const DEPARTMENTS = ['Sales', 'Admin']
 const PRIORITIES = ['low', 'medium', 'high']
 
 export default function CreateTicketForm({ brands }: { brands: { id: string; code: string; name: string }[] }) {
   const router = useRouter()
   const supabase = createClient()
-  const { activeBusinessId, businesses } = useBusiness()
   const [form, setForm] = useState({
     department: '',
     brand_id: '',
-    business_id: activeBusinessId !== 'all' ? activeBusinessId : '',
     priority: 'medium',
     name: '',
     body: ''
@@ -27,7 +24,7 @@ export default function CreateTicketForm({ brands }: { brands: { id: string; cod
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.department || !form.brand_id || !form.business_id || !form.name || !form.body) {
+    if (!form.department || !form.brand_id || !form.name || !form.body) {
       toast.error('Please fill in all required fields')
       return
     }
@@ -59,15 +56,7 @@ export default function CreateTicketForm({ brands }: { brands: { id: string; cod
           {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
       </div>
-      {activeBusinessId === 'all' ? (
-        <div>
-          <label className="form-label">Business *</label>
-          <select className="form-input" value={form.business_id} onChange={e => setField('business_id', e.target.value)}>
-            <option value="">Select Business</option>
-            {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-        </div>
-      ) : null}
+
       <div>
         <label className="form-label">Site *</label>
         <select className="form-input" value={form.brand_id} onChange={e => setField('brand_id', e.target.value)}>

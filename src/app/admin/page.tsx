@@ -34,59 +34,79 @@ export default async function DashboardPage({ searchParams }: Props) {
   let tasksDueTodayQuery = supabase.from('tasks').select('id', { count: 'exact', head: true })
     .eq('assigned_to', userId).not('status', 'eq', 'done')
     .gte('due_at', startOfDay).lte('due_at', endOfDay)
-  let leaderboardQuery = supabase.from('orders')
-    .select('user_id, users!orders_user_id_fkey(full_name)')
-    .gte('created_at', startOfDay)
-    .in('status', ['paid', 'processing', 'lead'])
+
+  let helpRequestsQuery = supabase.from('help_requests')
+    .select('id', { count: 'exact', head: true })
+    .in('status', ['pending', 'in_progress'])
+
+  let recentHelpRequestsQuery = supabase.from('help_requests')
+    .select('id, subject, customer_name, customer_email, status, created_at, brand:brands(code,name)')
+    .in('status', ['pending', 'in_progress'])
+    .order('created_at', { ascending: false })
+    .limit(5)
+
+  let recentPendingDocsQuery = supabase.from('orders')
+    .select('id, first_name, last_name, amount_total, created_at, status, brand:brands(code,name), form_type:form_types(code,name)')
+    .eq('status', 'processing')
+    .eq('document_delivered', false)
+    .order('created_at', { ascending: false })
+    .limit(5)
+
+  let tasksListQuery = supabase.from('tasks')
+    .select('id, title, description, due_at, priority, status')
+    .eq('assigned_to', userId)
+    .not('status', 'eq', 'done')
+    .gte('due_at', startOfDay)
+    .lte('due_at', endOfDay)
+    .order('due_at', { ascending: true })
+    .limit(5)
 
   if (activeBusinessId !== 'all') {
     activeCasesQuery = activeCasesQuery.eq('business_id', activeBusinessId)
     docsPendingQuery = docsPendingQuery.eq('business_id', activeBusinessId)
     tasksDueTodayQuery = tasksDueTodayQuery.eq('business_id', activeBusinessId)
-    leaderboardQuery = leaderboardQuery.eq('business_id', activeBusinessId)
+    helpRequestsQuery = helpRequestsQuery.eq('business_id', activeBusinessId)
+    recentHelpRequestsQuery = recentHelpRequestsQuery.eq('business_id', activeBusinessId)
+    recentPendingDocsQuery = recentPendingDocsQuery.eq('business_id', activeBusinessId)
+    tasksListQuery = tasksListQuery.eq('business_id', activeBusinessId)
   }
 
   const [
     { count: activeCases },
     { count: docsPending },
     { count: tasksDueToday },
-    { data: ordersToday },
+    { count: helpRequestsCount },
+    { data: recentHelpRequests },
+    { data: recentPendingDocs },
+    { data: tasksList },
+    { data: formTypes },
   ] = await Promise.all([
     activeCasesQuery,
     docsPendingQuery,
     tasksDueTodayQuery,
-    leaderboardQuery,
+    helpRequestsQuery,
+    recentHelpRequestsQuery,
+    recentPendingDocsQuery,
+    tasksListQuery,
+    supabase.from('form_types').select('id, code, name, base_price, fee_scale')
   ])
 
-  // Aggregate leaderboard
-  const counts: Record<string, { full_name: string; orders: number }> = {}
-  ordersToday?.forEach((o: any) => {
-    if (!o.user_id) return
-    const name = o.users?.full_name || 'Staff'
-    if (!counts[o.user_id]) {
-      counts[o.user_id] = { full_name: name, orders: 0 }
-    }
-    counts[o.user_id].orders++
-  })
-  const leaderboard = Object.entries(counts).map(([user_id, val]) => ({
-    user_id,
-    full_name: val.full_name,
-    orders: val.orders,
-  }))
+  const userName = cookieStore.get('user-fullname')?.value ?? 'Admin'
 
   const stats = {
     totalToday: activeCases ?? 0,
     paidToday: docsPending ?? 0,
     openTickets: tasksDueToday ?? 0,
-    helpRequests: 0,
+    helpRequests: helpRequestsCount ?? 0,
   }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <DashboardClient
         stats={stats}
-        leaderboard={leaderboard}
         currentUserId={userId}
+        userName={userName}
+        services={(formTypes as any) ?? []}
       />
     </div>
   )
