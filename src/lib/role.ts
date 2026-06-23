@@ -3,7 +3,7 @@ import type { UserRole } from '@/types'
 // Route → allowed roles map
 export const ROLE_ROUTES: Record<string, UserRole[]> = {
   '/admin/director':    ['director'],
-  '/admin/enquiries':   ['director', 'sales'],
+  '/admin/enquiries':   ['director', 'sales', 'admin'],
   '/admin/payments':    ['director', 'admin'],
   '/admin/services':    ['director'],
   '/admin/team':        ['director'],
@@ -11,7 +11,7 @@ export const ROLE_ROUTES: Record<string, UserRole[]> = {
   '/admin/settings':    ['director'],
   '/admin/orders':      ['director', 'admin', 'sales'],
   '/admin/tasks':       ['director', 'admin', 'sales'],
-  '/admin/create-order':['director', 'sales'],
+  '/admin/create-order':['director', 'sales', 'admin'],
 }
 
 export function getDashboardPath(role: UserRole): string {

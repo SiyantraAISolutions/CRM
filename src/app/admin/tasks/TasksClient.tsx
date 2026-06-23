@@ -33,7 +33,7 @@ export default function TasksClient({ currentUserId, users }: { currentUserId: s
   const supabase = createClient()
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'mine' | 'all'>('mine')
+  const [filter, setFilter] = useState<'mine' | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('open')
   const [showModal, setShowModal] = useState(false)
 

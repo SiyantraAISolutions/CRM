@@ -1,13 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Save } from 'lucide-react'
+import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDateTime, timeAgo, cn } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import Avatar from '@/components/ui/Avatar'
 import { toast } from 'sonner'
+import { loadStripe } from '@stripe/stripe-js'
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
 type Tab = 'information' | 'process' | 'related' | 'notes'
 
@@ -17,6 +21,7 @@ interface OrderNote { id: string; message: string; category?: string; created_at
 interface Props {
   order: Record<string, unknown>
   relatedOrders: Record<string, unknown>[]
+  userRole?: string
 }
 
 const ITEM_TYPES = [
@@ -26,7 +31,91 @@ const ITEM_TYPES = [
   'Printed Copy Fee', 'SMS Updates Fee',
 ]
 
-export default function OrderDetailClient({ order, relatedOrders }: Props) {
+// ─── Stripe Elements Payment Form ────────────────────────────────────────
+function StripePaymentForm({ orderId, amount, onSuccess, onCancel }: {
+  orderId: string
+  amount: number
+  onSuccess: () => void
+  onCancel: () => void
+}) {
+  const stripe = useStripe()
+  const elements = useElements()
+  const [processing, setProcessing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!stripe || !elements) return
+
+    setProcessing(true)
+    setError(null)
+
+    const { error: submitError } = await elements.submit()
+    if (submitError) {
+      setError(submitError.message ?? 'Validation error')
+      setProcessing(false)
+      return
+    }
+
+    const { error: confirmError, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: window.location.href,
+      },
+      redirect: 'if_required',
+    })
+
+    if (confirmError) {
+      setError(confirmError.message ?? 'Payment failed')
+      setProcessing(false)
+      return
+    }
+
+    if (paymentIntent && paymentIntent.status === 'succeeded') {
+      // Record in DB
+      const res = await fetch('/api/stripe/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payment_intent_id: paymentIntent.id,
+          order_id: orderId,
+        }),
+      })
+
+      if (res.ok) {
+        toast.success(`Payment of ${formatCurrency(amount)} processed successfully!`)
+        onSuccess()
+      } else {
+        const data = await res.json()
+        setError(data.error || 'Failed to record payment')
+      }
+    }
+    setProcessing(false)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement options={{ layout: 'tabs' }} />
+      {error && (
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      <div className="flex gap-3 justify-end pt-2">
+        <button type="button" onClick={onCancel} className="btn-outline" disabled={processing}>
+          Cancel
+        </button>
+        <button type="submit" disabled={!stripe || processing} className="btn-success gap-2">
+          {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+          {processing ? 'Processing...' : `Pay ${formatCurrency(amount)}`}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+// ─── Main Component ──────────────────────────────────────────────────────
+export default function OrderDetailClient({ order, relatedOrders, userRole }: Props) {
   const router = useRouter()
   const supabase = createClient()
   const [activeTab, setActiveTab] = useState<Tab>('information')
@@ -35,12 +124,38 @@ export default function OrderDetailClient({ order, relatedOrders }: Props) {
   const [notes, setNotes] = useState<OrderNote[]>((order.notes as OrderNote[]) ?? [])
   const [saving, setSaving] = useState(false)
 
+  // Stripe payment states
+  const [showPaymentForm, setShowPaymentForm] = useState(false)
+  const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null)
+  const [generatingLink, setGeneratingLink] = useState(false)
+  const [copiedLink, setCopiedLink] = useState(false)
+  const [showRefundModal, setShowRefundModal] = useState(false)
+  const [refundAmount, setRefundAmount] = useState('')
+  const [refundReason, setRefundReason] = useState('requested_by_customer')
+  const [processingRefund, setProcessingRefund] = useState(false)
+
+  // Fetch current user role
+  const [currentRole, setCurrentRole] = useState(userRole || '')
+  useEffect(() => {
+    if (!userRole) {
+      supabase.auth.getUser().then(({ data }) => {
+        if (data.user) {
+          supabase.from('users').select('role').eq('id', data.user.id).single()
+            .then(({ data: profile }) => setCurrentRole(profile?.role ?? ''))
+        }
+      })
+    }
+  }, [supabase, userRole])
+
   const shortId = String(order.id).slice(-6).toUpperCase()
   const brand = order.brand as { name: string; code: string } | null
   const formType = order.form_type as { name: string } | null
   const status = order.status as string | null
+  const stripePaymentId = order.stripe_payment_intent_id as string | undefined
 
   const total = items.reduce((sum, item) => sum + Number(item.amount), 0)
+
+  const canRefund = currentRole === 'director' && status === 'paid' && !!stripePaymentId
 
   function addItem() {
     setItems(prev => [...prev, { id: crypto.randomUUID(), item_type: ITEM_TYPES[0], amount: 0 }])
@@ -56,25 +171,21 @@ export default function OrderDetailClient({ order, relatedOrders }: Props) {
 
   async function saveItems() {
     setSaving(true)
-    // Delete existing items
     await supabase.from('order_items').delete().eq('order_id', order.id)
-    // Insert new
     if (items.length > 0) {
       await supabase.from('order_items').insert(
         items.map(it => ({ order_id: order.id, item_type: it.item_type, amount: Number(it.amount) }))
       )
     }
-    // Update order total
     await supabase.from('orders').update({ amount_total: total }).eq('id', order.id)
     setSaving(false)
     toast.success('Line items saved')
   }
 
-  async function setStatus(status: string) {
-    await supabase.from('orders').update({ status }).eq('id', order.id)
-    // Log note
-    await addTimelineNote(`Status changed to ${status}`, 'Status Change')
-    toast.success(`Order marked as ${status}`)
+  async function setStatus(newStatus: string) {
+    await supabase.from('orders').update({ status: newStatus }).eq('id', order.id)
+    await addTimelineNote(`Status changed to ${newStatus}`, 'Status Change')
+    toast.success(`Order marked as ${newStatus}`)
     router.refresh()
   }
 
@@ -92,6 +203,93 @@ export default function OrderDetailClient({ order, relatedOrders }: Props) {
     if (!newNote.trim()) return
     await addTimelineNote(newNote, 'Manual Note')
     setNewNote('')
+  }
+
+  // ─── Stripe: Send Payment Link ──────────────────────────
+  async function sendPaymentLink() {
+    setGeneratingLink(true)
+    try {
+      const res = await fetch('/api/stripe/payment-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: order.id,
+          amount: total || order.amount_total,
+          customer_email: order.email,
+          description: `${formType?.name ?? 'Order'} — #${shortId}`,
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      await navigator.clipboard.writeText(data.url)
+      setCopiedLink(true)
+      toast.success('Payment link copied to clipboard!')
+      setTimeout(() => setCopiedLink(false), 3000)
+      router.refresh()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to generate payment link'
+      toast.error(message)
+    } finally {
+      setGeneratingLink(false)
+    }
+  }
+
+  // ─── Stripe: Take Payment on Call ───────────────────────
+  async function startTakePayment() {
+    try {
+      const payAmount = total || Number(order.amount_total)
+      const res = await fetch('/api/stripe/charge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: order.id,
+          amount: payAmount,
+          description: `${formType?.name ?? 'Order'} — #${shortId}`,
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      setPaymentClientSecret(data.client_secret)
+      setShowPaymentForm(true)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to initialize payment'
+      toast.error(message)
+    }
+  }
+
+  // ─── Stripe: Process Refund ─────────────────────────────
+  async function processRefund() {
+    if (!stripePaymentId) return
+    setProcessingRefund(true)
+
+    try {
+      const res = await fetch('/api/stripe/refund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payment_intent_id: stripePaymentId,
+          amount: refundAmount ? Number(refundAmount) : undefined,
+          reason: refundReason,
+          order_id: order.id,
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      toast.success('Refund processed successfully')
+      setShowRefundModal(false)
+      router.refresh()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Refund failed'
+      toast.error(message)
+    } finally {
+      setProcessingRefund(false)
+    }
   }
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
@@ -126,6 +324,7 @@ export default function OrderDetailClient({ order, relatedOrders }: Props) {
     { label: 'Mortgaged', value: order.is_mortgaged ? 'Yes' : 'No' },
     { label: 'Priority', value: order.priority as string },
     { label: 'Terms Accepted', value: order.terms_accepted ? 'Yes' : 'No' },
+    ...(stripePaymentId ? [{ label: 'Stripe Payment ID', value: stripePaymentId }] : []),
   ].filter(f => f.value)
 
   return (
@@ -186,7 +385,18 @@ export default function OrderDetailClient({ order, relatedOrders }: Props) {
                 {infoFields.map((f, i) => (
                   <tr key={f.label} className={cn(i % 2 === 0 ? 'bg-white' : 'bg-row-stripe/30')}>
                     <td className="py-2.5 px-3 font-medium text-ink-gray-5 w-48">{f.label}</td>
-                    <td className="py-2.5 px-3 text-ink-gray-9">{f.value}</td>
+                    <td className="py-2.5 px-3 text-ink-gray-9">
+                      {f.label === 'Stripe Payment ID' && f.value ? (
+                        <a
+                          href={`https://dashboard.stripe.com/payments/${f.value}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-xs text-accent-blue hover:underline inline-flex items-center gap-1"
+                        >
+                          {f.value} <ExternalLink className="h-3 w-3" />
+                        </a>
+                      ) : f.value}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -257,17 +467,181 @@ export default function OrderDetailClient({ order, relatedOrders }: Props) {
               </select>
             </div>
 
+            {/* ─── STRIPE PAYMENT ACTIONS ────────────────────────── */}
+            {status !== 'paid' && status !== 'dead' && (
+              <div className="panel">
+                <div className="section-heading flex items-center gap-2">
+                  <CreditCard className="h-4 w-4" />
+                  Payment Actions
+                </div>
+
+                {/* Stripe Elements Payment Form */}
+                {showPaymentForm && paymentClientSecret ? (
+                  <div className="mt-3">
+                    <div className="mb-3 rounded-lg bg-surface-blue border border-accent-blue/20 px-4 py-3 text-sm text-ink-blue">
+                      <strong>Secure Card Payment</strong> — Enter the customer&apos;s card details below.
+                      Card data is handled securely by Stripe and never touches our servers.
+                    </div>
+                    <Elements
+                      stripe={stripePromise}
+                      options={{
+                        clientSecret: paymentClientSecret,
+                        appearance: {
+                          theme: 'stripe',
+                          variables: {
+                            colorPrimary: '#16243B',
+                            borderRadius: '8px',
+                          },
+                        },
+                      }}
+                    >
+                      <StripePaymentForm
+                        orderId={order.id as string}
+                        amount={total || Number(order.amount_total)}
+                        onSuccess={() => {
+                          setShowPaymentForm(false)
+                          setPaymentClientSecret(null)
+                          router.refresh()
+                        }}
+                        onCancel={() => {
+                          setShowPaymentForm(false)
+                          setPaymentClientSecret(null)
+                        }}
+                      />
+                    </Elements>
+                  </div>
+                ) : (
+                  <div className="space-y-2 mt-3">
+                    {/* Send Payment Link */}
+                    <button
+                      onClick={sendPaymentLink}
+                      disabled={generatingLink}
+                      className="btn-primary w-full py-3 text-base font-semibold gap-2"
+                    >
+                      {generatingLink ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : copiedLink ? (
+                        <Check className="h-5 w-5" />
+                      ) : (
+                        <Link2 className="h-5 w-5" />
+                      )}
+                      {generatingLink ? 'Generating...' : copiedLink ? 'Link Copied!' : 'Send Payment Link'}
+                    </button>
+
+                    {/* Take Payment on Call */}
+                    <button
+                      onClick={startTakePayment}
+                      className="btn-success w-full py-3 text-base font-semibold gap-2"
+                    >
+                      <CreditCard className="h-5 w-5" />
+                      Take Payment on Call
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Stripe Payment Info (for paid orders) */}
+            {status === 'paid' && stripePaymentId && (
+              <div className="panel">
+                <div className="section-heading flex items-center gap-2">
+                  <CreditCard className="h-4 w-4" />
+                  Payment Information
+                </div>
+                <div className="mt-3 space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-ink-gray-5">Stripe Payment ID</span>
+                    <a
+                      href={`https://dashboard.stripe.com/payments/${stripePaymentId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-xs text-accent-blue hover:underline inline-flex items-center gap-1"
+                    >
+                      {stripePaymentId} <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-ink-gray-5">Amount Paid</span>
+                    <span className="font-semibold text-success-green">{formatCurrency(Number(order.amount_total))}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Refund Button (director only, paid orders with stripe ID) */}
+            {canRefund && (
+              <div className="panel border-red-200">
+                <div className="section-heading flex items-center gap-2 text-danger-red">
+                  <RotateCcw className="h-4 w-4" />
+                  Refund
+                </div>
+                {showRefundModal ? (
+                  <div className="mt-3 space-y-3">
+                    <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                      <strong>⚠️ Warning:</strong> This will process a real refund on your Stripe account.
+                    </div>
+                    <div>
+                      <label className="form-label">Refund Amount (leave blank for full refund)</label>
+                      <div className="relative w-48">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-gray-4 text-sm">£</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-input pl-7 w-full"
+                          placeholder={String(order.amount_total)}
+                          value={refundAmount}
+                          onChange={e => setRefundAmount(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="form-label">Reason</label>
+                      <select
+                        className="form-input w-64"
+                        value={refundReason}
+                        onChange={e => setRefundReason(e.target.value)}
+                      >
+                        <option value="requested_by_customer">Requested by Customer</option>
+                        <option value="duplicate">Duplicate</option>
+                        <option value="fraudulent">Fraudulent</option>
+                      </select>
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={processRefund}
+                        disabled={processingRefund}
+                        className="btn-danger gap-2"
+                      >
+                        {processingRefund ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                        {processingRefund ? 'Processing...' : 'Confirm Refund'}
+                      </button>
+                      <button onClick={() => setShowRefundModal(false)} className="btn-outline">Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowRefundModal(true)}
+                    className="btn-danger w-full py-3 text-base font-semibold gap-2 mt-3"
+                  >
+                    <RotateCcw className="h-5 w-5" />
+                    Issue Refund
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Status actions */}
             <div className="space-y-2">
-              <button onClick={() => setStatus('dead')} className="btn-danger w-full py-3 text-base font-semibold">
-                Dead
-              </button>
-              <button onClick={() => setStatus('paid')} className="btn-success w-full py-3 text-base font-semibold">
-                Take Payment
-              </button>
-              <button onClick={() => setStatus('no_answer')} className="btn-warning w-full py-3 text-base font-semibold">
-                No Answer / Non-UK Phone Number
-              </button>
+              {status !== 'dead' && (
+                <button onClick={() => setStatus('dead')} className="btn-danger w-full py-3 text-base font-semibold">
+                  Dead
+                </button>
+              )}
+              {status !== 'paid' && (
+                <button onClick={() => setStatus('no_answer')} className="btn-warning w-full py-3 text-base font-semibold">
+                  No Answer / Non-UK Phone Number
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -350,6 +724,14 @@ export default function OrderDetailClient({ order, relatedOrders }: Props) {
           </div>
         )}
       </div>
+
+      {/* Copy link overlay */}
+      {copiedLink && (
+        <div className="fixed bottom-6 right-6 bg-navy text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 text-sm font-medium animate-in slide-in-from-bottom-4">
+          <Copy className="h-4 w-4" />
+          Payment link copied to clipboard
+        </div>
+      )}
     </div>
   )
 }

@@ -2,11 +2,15 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Phone, PhoneOff, ChevronRight } from 'lucide-react'
+import { Phone, PhoneOff, ChevronRight, CreditCard, Link2, Loader2, Check, Copy } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn, formatCurrency } from '@/lib/utils'
 import { calculateHMLRFee, getScaleForFormType } from '@/lib/hmlr-fees'
 import { toast } from 'sonner'
+import { loadStripe } from '@stripe/stripe-js'
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
 type WizardStep = 'landing' | 'form-type' | 'wizard' | 'upsells' | 'review'
 
@@ -46,11 +50,12 @@ export default function CreateOrderClient({ brands }: Props) {
   const [hmlrFee, setHmlrFee] = useState(0)
   const [termsAccepted, setTermsAccepted] = useState(false)
 
-  // Payment
-  const [cardNumber, setCardNumber] = useState('')
-  const [cardExpiry, setCardExpiry] = useState('')
-  const [cardCvc, setCardCvc] = useState('')
-  const [cardName, setCardName] = useState('')
+  // Payment mode
+  const [paymentMode, setPaymentMode] = useState<'link' | 'card' | null>(null)
+  const [generatingLink, setGeneratingLink] = useState(false)
+  const [copiedLink, setCopiedLink] = useState(false)
+  const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null)
+  const [createdOrderId, setCreatedOrderId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!selectedBrand) return
@@ -69,7 +74,24 @@ export default function CreateOrderClient({ brands }: Props) {
     }
   }, [selectedFormType, propertyValue])
 
-  const basePrice = selectedFormType?.base_price ?? 0
+  const SERVICE_RETAIL_VALS: Record<string, number> = {
+    TITLE_REGISTER: 36.00,
+    TITLE_PLAN: 36.00,
+    MAP_SEARCH: 41.00,
+    PROPERTY_OWNERSHIP: 60.00,
+    FR1: 600.00, // First Registration
+    AP1: 150.00, // Name Change
+    DJP: 400.00, // Death of Joint Proprietor
+    TR1: 450.00, // Transfer of Equity
+    TP1: 450.00, // Transfer of Part / Equity
+    COG1: 150.00, // Name/Address change
+    SEV: 350.00, // Severance / restriction
+    RX3: 350.00, // Removal of a Restriction
+    ADV1: 450.00, // Adverse Possession
+    AS1: 450.00, // Assent of Whole / Wills & Probate
+  }
+
+  const basePrice = selectedFormType ? (SERVICE_RETAIL_VALS[selectedFormType.code] ?? selectedFormType.base_price) : 0
   const upsellTotal = (upsells.faster_docs ? UPSELL_PRICES.faster_docs : 0)
     + (upsells.printed_copy ? UPSELL_PRICES.printed_copy : 0)
     + (upsells.sms_updates ? UPSELL_PRICES.sms_updates : 0)
@@ -79,8 +101,7 @@ export default function CreateOrderClient({ brands }: Props) {
     setFormData(prev => ({ ...prev, [key]: value }))
   }
 
-  async function submitOrder() {
-    setSubmitting(true)
+  async function createOrderInDB() {
     const { data: { user } } = await supabase.auth.getUser()
 
     const orderPayload = {
@@ -93,7 +114,6 @@ export default function CreateOrderClient({ brands }: Props) {
       priority: 'standard',
       amount_total: grandTotal,
       terms_accepted: termsAccepted,
-      // Customer fields
       title: formData.title,
       first_name: formData.first_name,
       middle_name: formData.middle_name,
@@ -105,7 +125,6 @@ export default function CreateOrderClient({ brands }: Props) {
       city: formData.city,
       county: formData.county,
       postcode: formData.postcode,
-      // Property fields
       title_number: formData.title_number,
       tenure: formData.tenure,
       property_value: propertyValue ? Number(propertyValue) : null,
@@ -122,11 +141,9 @@ export default function CreateOrderClient({ brands }: Props) {
 
     if (error || !newOrder) {
       toast.error('Failed to create order')
-      setSubmitting(false)
-      return
+      return null
     }
 
-    // Insert initial line items
     const lineItems = [
       { order_id: newOrder.id, item_type: 'Document Fee', amount: basePrice },
       ...(hmlrFee > 0 ? [{ order_id: newOrder.id, item_type: 'HMLR Fee', amount: hmlrFee }] : []),
@@ -136,7 +153,6 @@ export default function CreateOrderClient({ brands }: Props) {
     ]
     await supabase.from('order_items').insert(lineItems)
 
-    // Note
     await supabase.from('order_notes').insert({
       order_id: newOrder.id,
       user_id: user?.id,
@@ -144,8 +160,73 @@ export default function CreateOrderClient({ brands }: Props) {
       category: 'Order Created',
     })
 
-    toast.success('Order created successfully!')
-    router.push(`/admin/orders/${newOrder.id}`)
+    return newOrder
+  }
+
+  // ─── Send Payment Link Flow ─────────────────────────────
+  async function handleSendPaymentLink() {
+    setSubmitting(true)
+    setGeneratingLink(true)
+    try {
+      const newOrder = await createOrderInDB()
+      if (!newOrder) { setSubmitting(false); setGeneratingLink(false); return }
+
+      const res = await fetch('/api/stripe/payment-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: newOrder.id,
+          amount: grandTotal,
+          customer_email: formData.email,
+          description: `${selectedFormType?.name} — ${selectedBrand?.name}`,
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      await navigator.clipboard.writeText(data.url)
+      setCopiedLink(true)
+      toast.success('Order created & payment link copied to clipboard!')
+      setTimeout(() => router.push(`/admin/orders/${newOrder.id}`), 2000)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to generate payment link'
+      toast.error(message)
+      setSubmitting(false)
+    } finally {
+      setGeneratingLink(false)
+    }
+  }
+
+  // ─── Take Payment Now Flow ──────────────────────────────
+  async function handleTakePaymentNow() {
+    setSubmitting(true)
+    try {
+      const newOrder = await createOrderInDB()
+      if (!newOrder) { setSubmitting(false); return }
+      setCreatedOrderId(newOrder.id)
+
+      const res = await fetch('/api/stripe/charge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: newOrder.id,
+          amount: grandTotal,
+          description: `${selectedFormType?.name} — ${selectedBrand?.name}`,
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      setPaymentClientSecret(data.client_secret)
+      setPaymentMode('card')
+      setSubmitting(false)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to initialize payment'
+      toast.error(message)
+      setSubmitting(false)
+    }
   }
 
   // STEP: LANDING
@@ -226,7 +307,7 @@ export default function CreateOrderClient({ brands }: Props) {
               <div key={ft.id} className="flex items-center justify-between rounded-lg border bg-white p-4 hover:bg-surface-gray-1">
                 <div>
                   <div className="font-medium text-ink-gray-9">{ft.name}</div>
-                  <div className="text-sm text-ink-gray-4">{formatCurrency(ft.base_price)} + VAT</div>
+                  <div className="text-sm text-ink-gray-4">{formatCurrency(SERVICE_RETAIL_VALS[ft.code] ?? ft.base_price)} + VAT</div>
                 </div>
                 <button
                   onClick={() => { setSelectedFormType(ft); setStep('wizard') }}
@@ -542,50 +623,162 @@ export default function CreateOrderClient({ brands }: Props) {
             </label>
           </div>
 
-          {/* Payment form */}
-          <div className="panel">
-            <div className="section-heading">Card Payment</div>
-            <div className="space-y-3">
-              <div>
-                <label className="form-label">Card Number</label>
-                <input className="form-input" placeholder="1234 5678 9012 3456" maxLength={19}
-                  value={cardNumber} onChange={e => setCardNumber(e.target.value)} />
+          {/* Payment Options */}
+          {paymentMode === 'card' && paymentClientSecret && createdOrderId ? (
+            <div className="panel">
+              <div className="section-heading flex items-center gap-2">
+                <CreditCard className="h-4 w-4" />
+                Secure Card Payment
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="form-label">Expiry (MM/YY)</label>
-                  <input className="form-input" placeholder="MM/YY" maxLength={5}
-                    value={cardExpiry} onChange={e => setCardExpiry(e.target.value)} />
-                </div>
-                <div>
-                  <label className="form-label">CVC</label>
-                  <input className="form-input" placeholder="123" maxLength={4}
-                    value={cardCvc} onChange={e => setCardCvc(e.target.value)} />
-                </div>
+              <div className="mt-3 mb-3 rounded-lg bg-surface-blue border border-accent-blue/20 px-4 py-3 text-sm text-ink-blue">
+                <strong>Secure Payment</strong> — Card data is handled by Stripe and never touches our servers.
               </div>
-              <div>
-                <label className="form-label">Name on Card</label>
-                <input className="form-input" value={cardName} onChange={e => setCardName(e.target.value)} />
-              </div>
+              <Elements
+                stripe={stripePromise}
+                options={{
+                  clientSecret: paymentClientSecret,
+                  appearance: {
+                    theme: 'stripe',
+                    variables: { colorPrimary: '#16243B', borderRadius: '8px' },
+                  },
+                }}
+              >
+                <CreateOrderPaymentForm
+                  orderId={createdOrderId}
+                  amount={grandTotal}
+                  onSuccess={() => {
+                    toast.success('Payment processed successfully!')
+                    router.push(`/admin/orders/${createdOrderId}`)
+                  }}
+                  onCancel={() => {
+                    setPaymentMode(null)
+                    setPaymentClientSecret(null)
+                    toast.info('Order created but payment skipped. You can take payment from the order page.')
+                    router.push(`/admin/orders/${createdOrderId}`)
+                  }}
+                />
+              </Elements>
             </div>
-          </div>
+          ) : (
+            <>
+              <div className="panel">
+                <div className="section-heading">Payment Method</div>
+                <p className="text-sm text-ink-gray-5 mb-4">Choose how to collect payment for this order.</p>
+                <div className="space-y-3">
+                  <button
+                    onClick={handleSendPaymentLink}
+                    disabled={submitting || !termsAccepted}
+                    className="w-full flex items-center gap-4 rounded-xl border-2 border-outline-gray-3 hover:border-accent-blue hover:bg-surface-blue/30 p-5 text-left transition-all group"
+                  >
+                    <div className="h-12 w-12 rounded-lg bg-surface-blue flex items-center justify-center flex-shrink-0">
+                      {generatingLink ? <Loader2 className="h-6 w-6 text-accent-blue animate-spin" /> :
+                       copiedLink ? <Check className="h-6 w-6 text-success-green" /> :
+                       <Link2 className="h-6 w-6 text-accent-blue" />}
+                    </div>
+                    <div>
+                      <div className="font-semibold text-ink-gray-9 group-hover:text-accent-blue">
+                        {copiedLink ? 'Link Copied!' : 'Send Payment Link'}
+                      </div>
+                      <div className="text-xs text-ink-gray-4 mt-0.5">Create order & generate a Stripe payment link to send to the customer</div>
+                    </div>
+                  </button>
 
-          <div className="flex justify-between">
-            <button onClick={() => setStep('upsells')} className="btn-outline">← Previous</button>
-            <button
-              onClick={submitOrder}
-              disabled={submitting || !termsAccepted}
-              className="btn-success px-8 py-2.5 text-base font-semibold"
-            >
-              {submitting ? 'Processing...' : 'Take Payment'}
-            </button>
-          </div>
+                  <button
+                    onClick={handleTakePaymentNow}
+                    disabled={submitting || !termsAccepted}
+                    className="w-full flex items-center gap-4 rounded-xl border-2 border-outline-gray-3 hover:border-success-green hover:bg-surface-green/30 p-5 text-left transition-all group"
+                  >
+                    <div className="h-12 w-12 rounded-lg bg-surface-green flex items-center justify-center flex-shrink-0">
+                      {submitting && !generatingLink ? <Loader2 className="h-6 w-6 text-success-green animate-spin" /> :
+                       <CreditCard className="h-6 w-6 text-success-green" />}
+                    </div>
+                    <div>
+                      <div className="font-semibold text-ink-gray-9 group-hover:text-success-green">Take Payment Now</div>
+                      <div className="text-xs text-ink-gray-4 mt-0.5">Create order & enter card details securely via Stripe Elements</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-between">
+                <button onClick={() => setStep('upsells')} className="btn-outline">← Previous</button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     )
   }
 
   return null
+}
+
+// ─── Stripe Elements Payment Form for Create Order ──────
+function CreateOrderPaymentForm({ orderId, amount, onSuccess, onCancel }: {
+  orderId: string; amount: number; onSuccess: () => void; onCancel: () => void
+}) {
+  const stripe = useStripe()
+  const elements = useElements()
+  const [processing, setProcessing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!stripe || !elements) return
+
+    setProcessing(true)
+    setError(null)
+
+    const { error: submitError } = await elements.submit()
+    if (submitError) {
+      setError(submitError.message ?? 'Validation error')
+      setProcessing(false)
+      return
+    }
+
+    const { error: confirmError, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      confirmParams: { return_url: window.location.href },
+      redirect: 'if_required',
+    })
+
+    if (confirmError) {
+      setError(confirmError.message ?? 'Payment failed')
+      setProcessing(false)
+      return
+    }
+
+    if (paymentIntent && paymentIntent.status === 'succeeded') {
+      const res = await fetch('/api/stripe/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_intent_id: paymentIntent.id, order_id: orderId }),
+      })
+      if (res.ok) {
+        onSuccess()
+      } else {
+        const data = await res.json()
+        setError(data.error || 'Failed to record payment')
+      }
+    }
+    setProcessing(false)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4 mt-3">
+      <PaymentElement options={{ layout: 'tabs' }} />
+      {error && (
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>
+      )}
+      <div className="flex gap-3 justify-end pt-2">
+        <button type="button" onClick={onCancel} className="btn-outline" disabled={processing}>Skip Payment</button>
+        <button type="submit" disabled={!stripe || processing} className="btn-success gap-2">
+          {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+          {processing ? 'Processing...' : `Pay ${formatCurrency(amount)}`}
+        </button>
+      </div>
+    </form>
+  )
 }
 
 function UpsellOption({ label, subLabel, price, checked, onChange }: {

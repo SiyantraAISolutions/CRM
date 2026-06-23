@@ -226,7 +226,7 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
         <div className="flex items-center justify-between mb-6">
           <div>
             <h3 className="text-sm font-bold text-slate-900 tracking-tight">Revenue Trend — Last 30 Days</h3>
-            <p className="text-[11px] text-slate-500 font-medium mt-0.5">Daily cleared payment volume across all businesses</p>
+            <p className="text-[11px] text-slate-700 font-bold mt-0.5">Daily cleared payment volume across all businesses</p>
           </div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-50 border border-purple-200 text-[10px] font-bold text-purple-700">
             <BarChart2 className="h-3 w-3" /> 30d Window
@@ -261,7 +261,7 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900 tracking-tight">Individual Agent Performance</h3>
-              <p className="text-[11px] text-slate-500 font-medium">Click on any card to view detailed presence logs, active days, and tasks.</p>
+              <p className="text-[11px] text-slate-600 font-bold">Click on any card to view detailed presence logs, active days, and tasks.</p>
             </div>
           </div>
           <button
@@ -272,7 +272,7 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
           </button>
         </div>
 
-        <div className="grid grid-cols-1 gap-4">
+        <div className="max-h-[400px] overflow-y-auto pr-2 space-y-4 scrollbar-thin">
           {agentPerformance.map((agent, i) => (
             <div
               key={agent.id}
@@ -296,12 +296,12 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
                   <div>
                     <div className="text-sm font-bold text-slate-900 group-hover:text-purple-700 transition-colors">{agent.full_name}</div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{agent.role}</span>
+                      <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-700">{agent.role}</span>
                       <span className={cn(
                         "h-1.5 w-1.5 rounded-full",
                         PRESENCE_STATUS_COLORS[agent.current_status ?? 'available'] ?? 'bg-slate-400'
                       )} />
-                      <span className="text-[9px] capitalize text-slate-500 font-medium">{agent.current_status ?? 'available'}</span>
+                      <span className="text-[9px] capitalize text-slate-700 font-extrabold">{agent.current_status ?? 'available'}</span>
                     </div>
                   </div>
                 </div>
@@ -441,15 +441,15 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
               const pct = Math.max(2, Math.round((entry.count / maxEnq) * 100))
               return (
                 <div key={i} className="flex items-center gap-4 group">
-                  <div className="w-20 text-right text-[11px] font-bold text-slate-600 truncate">{entry.stage}</div>
-                  <div className="flex-1 bg-slate-50 h-5 rounded-full overflow-hidden flex items-center relative">
-                    <div 
-                      className="h-full bg-gradient-to-r from-purple-500 to-violet-500 rounded-full transition-all duration-700 ease-out"
-                      style={{ width: `${pct}%` }}
-                    />
-                    <div className="absolute left-3 text-[10px] font-extrabold text-white drop-shadow-md">
-                      {entry.count}
+                  <div className="w-20 text-right text-[11px] font-bold text-slate-700 truncate">{entry.stage}</div>
+                  <div className="flex-1 flex items-center gap-3">
+                    <div className="flex-1 bg-slate-100 h-4 rounded-full overflow-hidden relative">
+                      <div 
+                        className="h-full bg-gradient-to-r from-purple-500 to-violet-500 rounded-full transition-all duration-700 ease-out"
+                        style={{ width: `${pct}%` }}
+                      />
                     </div>
+                    <span className="text-[11px] font-extrabold text-slate-850 w-6 text-left">{entry.count}</span>
                   </div>
                 </div>
               )
@@ -472,7 +472,11 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
             {recentTasks.map(task => {
               const assignee = teamMembers.find(m => m.id === task.assigned_to)
               return (
-                <div key={task.id} className="flex items-center justify-between rounded-lg border border-purple-50 px-3.5 py-2.5 hover:bg-purple-50/40 transition-colors">
+                <div 
+                  key={task.id} 
+                  onClick={() => router.push('/admin/tasks')}
+                  className="flex items-center justify-between rounded-lg border border-purple-50 px-3.5 py-2.5 hover:bg-purple-100/50 hover:border-purple-200 transition-colors cursor-pointer"
+                >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span className={cn(
                       "h-2 w-2 rounded-full flex-shrink-0",
@@ -761,8 +765,8 @@ function KPICard({ icon, label, value, iconBg, sub, subColor, trend }: {
       <div className="relative z-10">
         <div className="text-2xl font-black text-slate-900 tracking-tight mb-1">{value}</div>
         <div className="flex items-end justify-between">
-          <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">{label}</div>
-          {sub && <div className={cn("text-[10px] font-bold", subColor ?? "text-slate-400")}>{sub}</div>}
+          <div className="text-[10px] font-black text-slate-700 uppercase tracking-widest">{label}</div>
+          {sub && <div className={cn("text-[10px] font-extrabold", subColor ?? "text-slate-600")}>{sub}</div>}
         </div>
       </div>
     </div>
@@ -776,7 +780,7 @@ function MiniStat({ label, value, icon }: { label: string; value: string; icon: 
         {icon}
         <span className="text-sm font-black text-slate-900">{value}</span>
       </div>
-      <div className="text-[8px] font-bold text-slate-500 uppercase tracking-wider">{label}</div>
+      <div className="text-[8px] font-extrabold text-slate-700 uppercase tracking-wider">{label}</div>
     </div>
   )
 }

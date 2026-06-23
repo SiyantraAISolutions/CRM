@@ -71,16 +71,16 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
     { label: 'Abandoned', href: '/admin/abandoned', icon: Archive, badge: counts.abandoned },
     { label: 'Tasks', href: '/admin/tasks', icon: CheckSquare },
     { label: 'Payments', href: '/admin/payments', icon: CreditCard, roles: ['director'] },
-    { label: 'Sales Info', href: '/admin/information/sales', icon: BookOpen },
-    { label: 'Admin Info', href: '/admin/information/admin', icon: Shield },
     { label: 'Team', href: '/admin/team', icon: Users, roles: ['director'] },
-    { label: 'Director View', href: '/admin/director', icon: TrendingUp, roles: ['director'] },
     { label: 'Settings', href: '/admin/settings', icon: Settings, roles: ['director'] },
   ]
 
   const visibleItems = navItems.filter(item => {
-    if (userRole === 'admin') {
-      return item.href === '/admin'
+    if (userRole === 'admin' && (item.href === '/admin/team' || item.href === '/admin/settings')) {
+      return false
+    }
+    if (userRole === 'director') {
+      return true
     }
     return !item.roles || item.roles.includes(userRole)
   })

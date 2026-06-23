@@ -9,6 +9,9 @@ import {
   Home, Key, Trash2, Shield, UserMinus, UserCheck, FilePlus, Sparkles
 } from 'lucide-react'
 import { cn, formatCurrency } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
+
+type ActivityStatus = 'available' | 'break' | 'lunch' | 'toilet' | 'training'
 
 export interface Service {
   id: string
@@ -43,14 +46,56 @@ const SERVICE_DETAILS: Record<string, { desc: string; category: 'registry' | 'de
   AS1: { desc: "Assent of the whole of registered title to beneficiaries by personal representatives.", category: 'deed', icon: BookOpen },
 }
 
+const SERVICE_RETAIL_PRICES: Record<string, string> = {
+  TITLE_REGISTER: '£36.00',
+  TITLE_PLAN: '£36.00',
+  MAP_SEARCH: '£41.00',
+  PROPERTY_OWNERSHIP: '£60.00',
+  FR1: '£600.00', // First Registration
+  AP1: '£150.00', // Name Change
+  DJP: '£400.00', // Death of Joint Proprietor
+  TR1: '£450.00', // Transfer of Equity
+  TP1: '£450.00', // Transfer of Part / Equity
+  COG1: '£150.00', // Name/Address change
+  SEV: '£350.00', // Joint Tenants to Tenants in Common (Applying for a Restriction / Severance)
+  RX3: '£350.00', // Removal of a Restriction
+  ADV1: '£450.00', // Adverse Possession
+  AS1: '£450.00', // Assent of Whole / Wills & Probate
+}
+
+const activityButtons: { status: ActivityStatus; label: string; colorClass: string; activeClass: string }[] = [
+  { status: 'break', label: 'Break', colorClass: 'border-purple-100 text-slate-600 bg-white hover:bg-purple-50 hover:border-purple-200', activeClass: 'bg-amber-50 border-amber-300 text-amber-700 shadow-sm' },
+  { status: 'lunch', label: 'Lunch', colorClass: 'border-purple-100 text-slate-600 bg-white hover:bg-purple-50 hover:border-purple-200', activeClass: 'bg-orange-50 border-orange-300 text-orange-700 shadow-sm' },
+  { status: 'toilet', label: 'Toilet', colorClass: 'border-purple-100 text-slate-600 bg-white hover:bg-purple-50 hover:border-purple-200', activeClass: 'bg-slate-100 border-slate-300 text-slate-700 shadow-sm' },
+  { status: 'training', label: 'Training', colorClass: 'border-purple-100 text-slate-600 bg-white hover:bg-purple-50 hover:border-purple-200', activeClass: 'bg-purple-50 border-purple-300 text-purple-700 shadow-sm' },
+]
+
 export default function DashboardClient({
   stats,
   services,
+  currentUserId,
   userName
 }: Props) {
   const router = useRouter()
+  const supabase = createClient()
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState<'all' | 'registry' | 'deed'>('all')
+  const [activeStatus, setActiveStatus] = useState<ActivityStatus | null>(null)
+  const [statusStart, setStatusStart] = useState<Date | null>(null)
+
+  async function handleActivity(status: ActivityStatus) {
+    if (activeStatus === status) {
+      await supabase.from('activity_logs').insert({ user_id: currentUserId, status, started_at: statusStart?.toISOString(), ended_at: new Date().toISOString() })
+      await supabase.from('users').update({ current_status: 'available' }).eq('id', currentUserId)
+      setActiveStatus(null); setStatusStart(null)
+    } else {
+      if (activeStatus) {
+        await supabase.from('activity_logs').insert({ user_id: currentUserId, status: activeStatus, started_at: statusStart?.toISOString(), ended_at: new Date().toISOString() })
+      }
+      await supabase.from('users').update({ current_status: status }).eq('id', currentUserId)
+      setActiveStatus(status); setStatusStart(new Date())
+    }
+  }
 
   // Filtered services
   const filteredServices = services.filter(service => {
@@ -89,6 +134,63 @@ export default function DashboardClient({
               <div className="text-xs font-bold text-white">Active Catalog Online</div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Activity controls / Presence Management */}
+      <div className="bg-white rounded-2xl border border-purple-100 shadow-sm p-6 hover:shadow-md transition-all duration-300">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-purple-50 pb-4 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-purple-50 text-purple-600 border border-purple-100">
+              <Clock className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight">Presence Management</h2>
+              <p className="text-[11px] text-slate-500 font-medium">Configure your active operational presence state</p>
+            </div>
+          </div>
+
+          {activeStatus ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-[11px] text-amber-800 shadow-sm flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+              </span>
+              <span>Active Break State: <strong className="capitalize text-amber-900">{activeStatus}</strong></span>
+              {statusStart && <span className="text-amber-600 ml-2 font-medium">since {statusStart.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-[11px] text-emerald-800 flex items-center gap-2 shadow-sm font-semibold">
+              <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Available & Routing Inbound Calls</span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-3 items-center">
+          {activityButtons.map(btn => (
+            <button
+              key={btn.status}
+              onClick={() => handleActivity(btn.status)}
+              className={cn(
+                'px-6 py-2.5 rounded-xl text-xs font-bold border transition-all duration-200 cursor-pointer',
+                activeStatus === btn.status
+                  ? btn.activeClass + ' scale-[0.98]'
+                  : btn.colorClass
+              )}
+            >
+              {activeStatus === btn.status ? `End ${btn.label}` : `Start ${btn.label}`}
+            </button>
+          ))}
+
+          {activeStatus && (
+            <button
+              onClick={() => handleActivity(activeStatus)}
+              className="py-2.5 px-6 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition-colors cursor-pointer shadow-sm flex items-center gap-1.5"
+            >
+              Back to Available <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -177,7 +279,7 @@ export default function DashboardClient({
                       {service.code}
                     </span>
                     <div className="text-xs font-black text-slate-900 mt-1.5">
-                      {service.base_price > 0 ? formatCurrency(service.base_price) : 'Scale Fee'}
+                      {SERVICE_RETAIL_PRICES[service.code] || (service.base_price > 0 ? formatCurrency(service.base_price) : 'Scale Fee')}
                     </div>
                   </div>
                 </div>
