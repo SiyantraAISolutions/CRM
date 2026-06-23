@@ -136,8 +136,14 @@ export default function OrderDetailClient({ order, relatedOrders }: Props) {
           <h1 className="text-xl font-bold text-ink-gray-9">ORDER #{shortId}</h1>
           <span className="text-sm text-ink-gray-4">{formatDateTime(order.created_at as string)}</span>
           <div className="ml-2">{status ? <Badge
-            label={status}
-            variant={status === 'paid' ? 'green' : status === 'dead' ? 'red' : 'gray'}
+            label={status.replace('_', ' ')}
+            variant={
+              status === 'paid' ? 'green' :
+              status === 'dead' ? 'red' :
+              (status === 'lead' || status === 'no_answer') ? 'orange' :
+              status === 'processing' ? 'blue' :
+              'gray'
+            }
           /> : null}</div>
         </div>
         <div className="text-sm text-ink-gray-5 mt-0.5">

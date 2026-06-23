@@ -21,7 +21,7 @@ const statusBadge = (status: string) => {
     dead: { variant: 'red', label: 'Dead' },
     no_answer: { variant: 'orange', label: 'No Answer' },
     processing: { variant: 'blue', label: 'Processing' },
-    lead: { variant: 'gray', label: 'Lead' },
+    lead: { variant: 'orange', label: 'Lead' },
     abandoned: { variant: 'gray', label: 'Abandoned' },
   }
   const s = map[status] ?? { variant: 'gray', label: status }
@@ -54,7 +54,7 @@ export default function OrdersClient({ brands, formTypes }: Props) {
         *,
         brand:brands(id, code, name),
         form_type:form_types(id, name, code),
-        user:users(id, full_name)
+        user:users!orders_user_id_fkey(id, full_name)
       `, { count: 'exact' })
       .order(sortKey, { ascending: sortDir === 'asc' })
       .range((page - 1) * pageSize, page * pageSize - 1)

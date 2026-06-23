@@ -14,7 +14,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       *,
       brand:brands(*),
       form_type:form_types(*),
-      user:users(id, full_name, email),
+      user:users!orders_user_id_fkey(id, full_name, email),
       items:order_items(*),
       notes:order_notes(*, user:users(id, full_name, avatar_url))
     `)
