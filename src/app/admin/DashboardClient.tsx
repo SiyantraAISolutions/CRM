@@ -1,14 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Clock, ArrowRight, FileText, CheckSquare, AlertCircle, Plus,
   ExternalLink, CreditCard, Ticket, BookOpen, ChevronRight, HelpCircle,
   FolderOpen, Search, Layers, ShieldAlert, ArrowLeftRight, Scissors,
-  Home, Key, Trash2, Shield, UserMinus, UserCheck, FilePlus, Sparkles
+  Home, Key, Trash2, Shield, UserMinus, UserCheck, FilePlus, Sparkles, Calendar
 } from 'lucide-react'
-import { cn, formatCurrency } from '@/lib/utils'
+import { cn, formatCurrency, formatDateTime } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 
 type ActivityStatus = 'available' | 'break' | 'lunch' | 'toilet' | 'training'
@@ -82,6 +82,21 @@ export default function DashboardClient({
   const [activeTab, setActiveTab] = useState<'all' | 'registry' | 'deed'>('all')
   const [activeStatus, setActiveStatus] = useState<ActivityStatus | null>(null)
   const [statusStart, setStatusStart] = useState<Date | null>(null)
+  const [upcomingVerifications, setUpcomingVerifications] = useState<any[]>([])
+
+  useEffect(() => {
+    async function loadUpcoming() {
+      const { data } = await supabase
+        .from('appointments')
+        .select('id, scheduled_at, status, order_id, orders(first_name, last_name)')
+        .eq('status', 'scheduled')
+        .gte('scheduled_at', new Date().toISOString())
+        .order('scheduled_at', { ascending: true })
+        .limit(5)
+      if (data) setUpcomingVerifications(data)
+    }
+    loadUpcoming()
+  }, [supabase])
 
   async function handleActivity(status: ActivityStatus) {
     if (activeStatus === status) {
@@ -192,6 +207,54 @@ export default function DashboardClient({
             </button>
           )}
         </div>
+      </div>
+
+      {/* Upcoming ID Verifications Panel */}
+      <div className="bg-white rounded-2xl border border-purple-100 shadow-sm p-6 hover:shadow-md transition-all duration-300">
+        <div className="flex items-center justify-between mb-4 border-b border-purple-50 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100">
+              <Calendar className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight">Upcoming ID Verifications</h2>
+              <p className="text-[11px] text-slate-500 font-medium">Your next 5 scheduled appointments</p>
+            </div>
+          </div>
+          <button onClick={() => router.push('/admin/appointments')} className="text-xs font-bold text-purple-600 hover:text-purple-800 transition-colors">
+            View Calendar →
+          </button>
+        </div>
+        
+        {upcomingVerifications.length === 0 ? (
+          <div className="text-center py-6 bg-slate-50 rounded-xl border border-slate-100">
+            <Calendar className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+            <p className="text-xs font-medium text-slate-500">No upcoming verifications scheduled</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {upcomingVerifications.map((appt) => {
+              const customerName = `${(appt.orders as any)?.first_name || ''} ${(appt.orders as any)?.last_name || ''}`.trim()
+              return (
+                <div key={appt.id} className="border border-purple-100 bg-purple-50/30 rounded-xl p-4 flex flex-col justify-between hover:bg-purple-50 transition-colors cursor-pointer" onClick={() => router.push(`/admin/orders/${appt.order_id}`)}>
+                  <div>
+                    <div className="text-[10px] font-bold text-purple-600 uppercase tracking-wider mb-1">
+                      {formatDateTime(appt.scheduled_at)}
+                    </div>
+                    <div className="text-sm font-bold text-slate-900 truncate">
+                      {customerName || 'Unknown Customer'}
+                    </div>
+                  </div>
+                  <div className="mt-3 flex justify-end">
+                    <span className="text-[10px] font-bold bg-white text-slate-600 border border-slate-200 px-2 py-1 rounded-md">
+                      View Order
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Catalog Search & Filters */}

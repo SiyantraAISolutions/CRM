@@ -8,6 +8,7 @@ import Badge from '@/components/ui/Badge'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDateTime } from '@/lib/utils'
 import { useBusiness } from '@/context/BusinessContext'
+import { Zap } from 'lucide-react'
 import { Order } from '@/types'
 
 interface Props {
@@ -130,6 +131,12 @@ export default function OrdersClient({ brands, formTypes }: Props) {
       key: 'manual_payment',
       label: 'Manual Payment',
       render: (v) => v ? <Badge label="Manual" variant="orange" /> : null,
+    },
+    {
+      key: 'priority',
+      label: 'Priority',
+      sortable: true,
+      render: (v) => v === 'fast_track' ? <span className="bg-rose-100 text-rose-800 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border border-rose-200 flex items-center gap-1 w-max"><Zap className="h-3 w-3" /> Fast Track</span> : null,
     },
     {
       key: 'status',

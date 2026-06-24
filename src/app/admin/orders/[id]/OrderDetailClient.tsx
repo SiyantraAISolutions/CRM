@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink } from 'lucide-react'
+import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink, Calendar, RefreshCcw, Clock, ArrowRight, MessageSquare, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDateTime, timeAgo, cn } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -10,16 +10,19 @@ import Avatar from '@/components/ui/Avatar'
 import { toast } from 'sonner'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
+import { CheckSquare } from 'lucide-react'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
-type Tab = 'information' | 'process' | 'related' | 'notes'
+type Tab = 'information' | 'process' | 'appointments' | 'related' | 'notes'
 
 interface OrderItem { id: string; item_type: string; amount: number }
 interface OrderNote { id: string; message: string; category?: string; created_at: string; user?: { full_name: string; avatar_url?: string } }
+interface Appointment { id: string; scheduled_at: string; status: string; solicitor_id: string | null; notes: string | null; solicitor?: { full_name: string } | null; reschedule_history: any[] }
+interface User { id: string; full_name: string }
 
 interface Props {
-  order: Record<string, unknown>
+  order: Record<string, any>
   relatedOrders: Record<string, unknown>[]
   userRole?: string
 }
@@ -72,7 +75,6 @@ function StripePaymentForm({ orderId, amount, onSuccess, onCancel }: {
     }
 
     if (paymentIntent && paymentIntent.status === 'succeeded') {
-      // Record in DB
       const res = await fetch('/api/stripe/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -115,14 +117,55 @@ function StripePaymentForm({ orderId, amount, onSuccess, onCancel }: {
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────
-export default function OrderDetailClient({ order, relatedOrders, userRole }: Props) {
+export default function OrderDetailClient({ order: initialOrder, relatedOrders, userRole }: Props) {
   const router = useRouter()
   const supabase = createClient()
+  const [order, setOrder] = useState(initialOrder)
   const [activeTab, setActiveTab] = useState<Tab>('information')
   const [items, setItems] = useState<OrderItem[]>((order.items as OrderItem[]) ?? [])
   const [newNote, setNewNote] = useState('')
   const [notes, setNotes] = useState<OrderNote[]>((order.notes as OrderNote[]) ?? [])
   const [saving, setSaving] = useState(false)
+  
+  // Appointments state
+  const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [showAppointmentForm, setShowAppointmentForm] = useState(false)
+  const [appointmentDate, setAppointmentDate] = useState('')
+  const [appointmentTime, setAppointmentTime] = useState('')
+  const [appointmentSolicitor, setAppointmentSolicitor] = useState('')
+  const [appointmentNotes, setAppointmentNotes] = useState('')
+  const [staff, setStaff] = useState<User[]>([])
+  const [reschedulingId, setReschedulingId] = useState<string | null>(null)
+
+  // Customer Data Editing State
+  const [editingInfo, setEditingInfo] = useState(false)
+  
+  // Deferral State
+  const [showDeferModal, setShowDeferModal] = useState(false)
+  const [deferDate, setDeferDate] = useState('')
+  const [deferReason, setDeferReason] = useState('')
+
+  // Monitor Tracking State
+  const [monitorStage, setMonitorStage] = useState((order as any).monitor_stage || 'awaiting')
+  const [submissionReqs, setSubmissionReqs] = useState((order as any).submission_requirements || { id_verified: false, form_signed: false, docs_uploaded: false })
+
+  const [customerData, setCustomerData] = useState({
+    first_name: order.first_name || '',
+    middle_name: order.middle_name || '',
+    last_name: order.last_name || '',
+    email: order.email || '',
+    phone: order.phone || '',
+    address_line1: order.address_line1 || '',
+    address_line2: order.address_line2 || '',
+    city: order.city || '',
+    county: order.county || '',
+    postcode: order.postcode || '',
+    title_number: order.title_number || '',
+    tenure: order.tenure || '',
+    property_value: order.property_value || '',
+    hmlr_fee: order.hmlr_fee || '',
+    tenancy_type: order.tenancy_type || ''
+  })
 
   // Stripe payment states
   const [showPaymentForm, setShowPaymentForm] = useState(false)
@@ -136,6 +179,7 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
 
   // Fetch current user role
   const [currentRole, setCurrentRole] = useState(userRole || '')
+  
   useEffect(() => {
     if (!userRole) {
       supabase.auth.getUser().then(({ data }) => {
@@ -147,6 +191,20 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
     }
   }, [supabase, userRole])
 
+  // Fetch appointments and staff
+  useEffect(() => {
+    async function fetchData() {
+      const { data: aData } = await supabase.from('appointments').select('*, solicitor:users(full_name)').eq('order_id', order.id).order('scheduled_at', { ascending: true })
+      if (aData) setAppointments(aData)
+      
+      const { data: sData } = await supabase.from('users').select('id, full_name').in('role', ['admin', 'director', 'sales'])
+      if (sData) setStaff(sData)
+    }
+    fetchData()
+  }, [supabase, order.id])
+
+  const isAdminOrDirector = currentRole === 'admin' || currentRole === 'director'
+
   const shortId = String(order.id).slice(-6).toUpperCase()
   const brand = order.brand as { name: string; code: string } | null
   const formType = order.form_type as { name: string } | null
@@ -157,18 +215,24 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
 
   const canRefund = currentRole === 'director' && status === 'paid' && !!stripePaymentId
 
+  const tabs: { id: Tab; label: React.ReactNode; count?: number; isHighlighted?: boolean }[] = [
+    { id: 'information', label: 'Information' },
+    { id: 'process', label: 'Process', count: items.length },
+    { id: 'appointments', label: <span className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" /> ID Verification</span>, count: appointments.length, isHighlighted: true },
+    { id: 'related', label: 'Related Orders', count: relatedOrders.length },
+    { id: 'notes', label: 'Timeline', count: notes.length },
+  ]
+
+  // ─── Order Items ──────────────────────────────────────────────
   function addItem() {
     setItems(prev => [...prev, { id: crypto.randomUUID(), item_type: ITEM_TYPES[0], amount: 0 }])
   }
-
   function updateItem(id: string, field: 'item_type' | 'amount', value: string | number) {
     setItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it))
   }
-
   function removeItem(id: string) {
     setItems(prev => prev.filter(it => it.id !== id))
   }
-
   async function saveItems() {
     setSaving(true)
     await supabase.from('order_items').delete().eq('order_id', order.id)
@@ -178,15 +242,135 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
       )
     }
     await supabase.from('orders').update({ amount_total: total }).eq('id', order.id)
+    setOrder({ ...order, amount_total: total })
     setSaving(false)
     toast.success('Line items saved')
   }
 
-  async function setStatus(newStatus: string) {
+  // ─── Customer Data ────────────────────────────────────────────
+  async function saveCustomerData() {
+    setSaving(true)
+    const { error } = await supabase.from('orders').update(customerData).eq('id', order.id)
+    setSaving(false)
+    if (error) {
+      toast.error('Failed to update customer data')
+    } else {
+      setOrder({ ...order, ...customerData })
+      setEditingInfo(false)
+      toast.success('Customer details updated')
+    }
+  }
+
+  // ─── Appointments ─────────────────────────────────────────────
+  async function handleSaveAppointment() {
+    if (!appointmentDate || !appointmentTime) {
+      toast.error('Date and time are required')
+      return
+    }
+
+    setSaving(true)
+    const scheduledAt = new Date(`${appointmentDate}T${appointmentTime}:00`).toISOString()
+    
+    if (reschedulingId) {
+      const current = appointments.find(a => a.id === reschedulingId)
+      const historyEntry = {
+        old_scheduled_at: current?.scheduled_at,
+        old_solicitor_id: current?.solicitor_id,
+        rescheduled_at: new Date().toISOString()
+      }
+      const newHistory = [...(current?.reschedule_history || []), historyEntry]
+      
+      const { data, error } = await supabase.from('appointments').update({
+        scheduled_at: scheduledAt,
+        solicitor_id: appointmentSolicitor || null,
+        notes: appointmentNotes,
+        status: 'rescheduled',
+        reschedule_history: newHistory
+      }).eq('id', reschedulingId).select('*, solicitor:users(full_name)').single()
+      
+      if (!error && data) {
+        setAppointments(prev => prev.map(a => a.id === reschedulingId ? data as Appointment : a))
+        toast.success('Appointment rescheduled')
+      }
+    } else {
+      const { data, error } = await supabase.from('appointments').insert({
+        order_id: order.id,
+        scheduled_at: scheduledAt,
+        solicitor_id: appointmentSolicitor || null,
+        status: 'scheduled',
+        notes: appointmentNotes
+      }).select('*, solicitor:users(full_name)').single()
+
+      if (!error && data) {
+        setAppointments([...appointments, data as Appointment])
+        toast.success('Appointment booked')
+      }
+    }
+    
+    setSaving(false)
+    setShowAppointmentForm(false)
+    setReschedulingId(null)
+    setAppointmentDate('')
+    setAppointmentTime('')
+    setAppointmentNotes('')
+    setAppointmentSolicitor('')
+  }
+  
+  async function updateAppointmentStatus(id: string, status: string) {
+    const { error } = await supabase.from('appointments').update({ status }).eq('id', id)
+    if (!error) {
+      setAppointments(prev => prev.map(a => a.id === id ? { ...a, status } : a))
+      toast.success(`Appointment marked as ${status}`)
+    }
+  }
+
+  // ─── Status & Notes ───────────────────────────────────────────
+  async function setOrderStatus(newStatus: string) {
     await supabase.from('orders').update({ status: newStatus }).eq('id', order.id)
+    setOrder({ ...order, status: newStatus })
     await addTimelineNote(`Status changed to ${newStatus}`, 'Status Change')
     toast.success(`Order marked as ${newStatus}`)
-    router.refresh()
+  }
+
+  async function handleDefer() {
+    if (!deferDate) {
+      toast.error('Please select a review date')
+      return
+    }
+    setSaving(true)
+    const { error } = await supabase.from('orders').update({ 
+      deferred_until: new Date(deferDate).toISOString(),
+      deferred_reason: deferReason 
+    }).eq('id', order.id)
+    
+    if (error) {
+      toast.error('Failed to defer application')
+    } else {
+      setOrder({ ...order, deferred_until: new Date(deferDate).toISOString(), deferred_reason: deferReason } as any)
+      await addTimelineNote(`Application deferred until ${formatDateTime(new Date(deferDate).toISOString())}. Reason: ${deferReason}`, 'System')
+      toast.success('Application deferred successfully')
+      setShowDeferModal(false)
+      setDeferDate('')
+      setDeferReason('')
+    }
+    setSaving(false)
+  }
+
+  async function handleResume() {
+    setSaving(true)
+    const { error } = await supabase.from('orders').update({ 
+      deferred_until: null,
+      deferred_reason: null 
+    }).eq('id', order.id)
+    
+    if (error) {
+      toast.error('Failed to resume processing')
+    } else {
+      setOrder({ ...order, deferred_until: null, deferred_reason: null } as any)
+      await addTimelineNote(`Application processing resumed manually.`, 'System')
+      toast.success('Processing resumed')
+    }
+    setSaving(false)
   }
 
   async function addTimelineNote(message: string, category?: string) {
@@ -227,7 +411,6 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
       setCopiedLink(true)
       toast.success('Payment link copied to clipboard!')
       setTimeout(() => setCopiedLink(false), 3000)
-      router.refresh()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to generate payment link'
       toast.error(message)
@@ -249,11 +432,9 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
           description: `${formType?.name ?? 'Order'} — #${shortId}`,
         }),
       })
-
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-
-      setPaymentClientSecret(data.client_secret)
+      setPaymentClientSecret(data.clientSecret)
       setShowPaymentForm(true)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to initialize payment'
@@ -263,25 +444,23 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
 
   // ─── Stripe: Process Refund ─────────────────────────────
   async function processRefund() {
-    if (!stripePaymentId) return
+    if (!canRefund) return
     setProcessingRefund(true)
-
     try {
       const res = await fetch('/api/stripe/refund', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          payment_intent_id: stripePaymentId,
-          amount: refundAmount ? Number(refundAmount) : undefined,
-          reason: refundReason,
           order_id: order.id,
+          amount: refundAmount ? Number(refundAmount) : null,
+          reason: refundReason,
         }),
       })
 
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
 
-      toast.success('Refund processed successfully')
+      toast.success('Refund processed successfully!')
       setShowRefundModal(false)
       router.refresh()
     } catch (err: unknown) {
@@ -292,40 +471,24 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
     }
   }
 
-  const tabs: { id: Tab; label: string; count?: number }[] = [
-    { id: 'information', label: 'Information' },
-    { id: 'process', label: 'Process' },
-    { id: 'related', label: 'Related Orders', count: relatedOrders.length },
-    { id: 'notes', label: 'Notes', count: notes.length },
-  ]
-
   const infoFields = [
-    { label: 'Order ID', value: `#${shortId}` },
-    { label: 'Brand', value: `${brand?.code} — ${brand?.name}` },
-    { label: 'Form Type', value: formType?.name },
-    { label: 'Status', value: status },
-    { label: 'Created', value: formatDateTime(order.created_at as string) },
-    { label: 'Title', value: order.title as string },
-    { label: 'First Name', value: order.first_name as string },
-    { label: 'Middle Name', value: order.middle_name as string },
-    { label: 'Surname', value: order.last_name as string },
-    { label: 'Email', value: order.email as string },
-    { label: 'Phone', value: order.phone as string },
-    { label: 'Address Line 1', value: order.address_line1 as string },
-    { label: 'Address Line 2', value: order.address_line2 as string },
-    { label: 'City', value: order.city as string },
-    { label: 'County', value: order.county as string },
-    { label: 'Postcode', value: order.postcode as string },
-    { label: 'Title Number', value: order.title_number as string },
-    { label: 'Tenure', value: order.tenure as string },
-    { label: 'Property Value', value: order.property_value ? formatCurrency(Number(order.property_value)) : '' },
-    { label: 'HMLR Fee', value: order.hmlr_fee ? formatCurrency(Number(order.hmlr_fee)) : '' },
-    { label: 'Tenancy Type', value: order.tenancy_type as string },
-    { label: 'Mortgaged', value: order.is_mortgaged ? 'Yes' : 'No' },
-    { label: 'Priority', value: order.priority as string },
-    { label: 'Terms Accepted', value: order.terms_accepted ? 'Yes' : 'No' },
-    ...(stripePaymentId ? [{ label: 'Stripe Payment ID', value: stripePaymentId }] : []),
-  ].filter(f => f.value)
+    { key: 'title', label: 'Title' },
+    { key: 'first_name', label: 'First Name' },
+    { key: 'middle_name', label: 'Middle Name' },
+    { key: 'last_name', label: 'Surname' },
+    { key: 'email', label: 'Email' },
+    { key: 'phone', label: 'Phone' },
+    { key: 'address_line1', label: 'Address Line 1' },
+    { key: 'address_line2', label: 'Address Line 2' },
+    { key: 'city', label: 'City' },
+    { key: 'county', label: 'County' },
+    { key: 'postcode', label: 'Postcode' },
+    { key: 'title_number', label: 'Title Number' },
+    { key: 'tenure', label: 'Tenure' },
+    { key: 'property_value', label: 'Property Value' },
+    { key: 'hmlr_fee', label: 'HMLR Fee' },
+    { key: 'tenancy_type', label: 'Tenancy Type' },
+  ]
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -350,7 +513,7 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
         </div>
       </div>
 
-      {/* Tabs — Frappe style */}
+      {/* Tabs */}
       <div className="border-b px-5">
         <div className="flex gap-7 overflow-x-auto">
           {tabs.map(tab => (
@@ -360,8 +523,8 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
               className={cn(
                 'flex items-center gap-1.5 py-3 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
                 activeTab === tab.id
-                  ? 'border-ink-gray-9 text-ink-gray-9'
-                  : 'border-transparent text-ink-gray-5 hover:text-ink-gray-7'
+                  ? (tab.isHighlighted ? 'border-purple-600 text-purple-700' : 'border-ink-gray-9 text-ink-gray-9')
+                  : (tab.isHighlighted ? 'border-transparent text-purple-500 hover:text-purple-600 hover:border-purple-200' : 'border-transparent text-ink-gray-5 hover:text-ink-gray-7')
               )}
             >
               {tab.label}
@@ -377,30 +540,85 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto p-5">
+        
         {/* INFORMATION TAB */}
         {activeTab === 'information' && (
           <div className="max-w-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-slate-800">Customer & Order Details</h2>
+              {isAdminOrDirector && !editingInfo && (
+                <button onClick={() => setEditingInfo(true)} className="text-xs font-bold bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg border border-purple-200">
+                  Edit Details
+                </button>
+              )}
+            </div>
+            
             <table className="w-full text-sm">
               <tbody>
-                {infoFields.map((f, i) => (
-                  <tr key={f.label} className={cn(i % 2 === 0 ? 'bg-white' : 'bg-row-stripe/30')}>
-                    <td className="py-2.5 px-3 font-medium text-ink-gray-5 w-48">{f.label}</td>
-                    <td className="py-2.5 px-3 text-ink-gray-9">
-                      {f.label === 'Stripe Payment ID' && f.value ? (
-                        <a
-                          href={`https://dashboard.stripe.com/payments/${f.value}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-mono text-xs text-accent-blue hover:underline inline-flex items-center gap-1"
-                        >
-                          {f.value} <ExternalLink className="h-3 w-3" />
-                        </a>
-                      ) : f.value}
-                    </td>
-                  </tr>
-                ))}
+                <tr className="bg-row-stripe/30">
+                  <td className="py-2.5 px-3 font-medium text-ink-gray-5 w-48">Stripe Payment ID</td>
+                  <td className="py-2.5 px-3 text-ink-gray-9">
+                    {stripePaymentId ? (
+                      <a href={`https://dashboard.stripe.com/payments/${stripePaymentId}`} target="_blank" rel="noopener noreferrer" className="font-mono text-xs text-accent-blue hover:underline inline-flex items-center gap-1">
+                        {stripePaymentId} <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : '—'}
+                  </td>
+                </tr>
+                {infoFields.map((f, i) => {
+                  const val = customerData[f.key as keyof typeof customerData];
+                  // In non-edit mode, don't show empty fields unless editing
+                  if (!editingInfo && !val) return null;
+                  
+                  return (
+                    <tr key={f.key} className={cn(i % 2 === 0 ? 'bg-white' : 'bg-row-stripe/30')}>
+                      <td className="py-2.5 px-3 font-medium text-ink-gray-5 w-48 align-middle">{f.label}</td>
+                      <td className="py-2.5 px-3 text-ink-gray-9">
+                        {editingInfo ? (
+                          <input 
+                            type="text"
+                            className="form-input text-xs w-full py-1.5"
+                            value={String(val)}
+                            onChange={e => setCustomerData(prev => ({ ...prev, [f.key]: e.target.value }))}
+                          />
+                        ) : (
+                          val
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
+            
+            {editingInfo && (
+              <div className="mt-4 flex justify-end gap-3">
+                <button onClick={() => {
+                  // Reset form
+                  setCustomerData({
+                    first_name: order.first_name || '',
+                    middle_name: order.middle_name || '',
+                    last_name: order.last_name || '',
+                    email: order.email || '',
+                    phone: order.phone || '',
+                    address_line1: order.address_line1 || '',
+                    address_line2: order.address_line2 || '',
+                    city: order.city || '',
+                    county: order.county || '',
+                    postcode: order.postcode || '',
+                    title_number: order.title_number || '',
+                    tenure: order.tenure || '',
+                    property_value: order.property_value || '',
+                    hmlr_fee: order.hmlr_fee || '',
+                    tenancy_type: order.tenancy_type || ''
+                  })
+                  setEditingInfo(false)
+                }} className="btn-outline">Cancel</button>
+                <button onClick={saveCustomerData} disabled={saving} className="btn-solid gap-2">
+                  <Save className="h-4 w-4" /> {saving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -413,42 +631,48 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
               <div className="space-y-2">
                 {items.map((item) => (
                   <div key={item.id} className="flex items-center gap-3">
-                    <select
-                      className="form-input flex-1"
-                      value={item.item_type}
-                      onChange={e => updateItem(item.id, 'item_type', e.target.value)}
-                    >
-                      {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
+                    {isAdminOrDirector ? (
+                      <select className="form-input flex-1" value={item.item_type} onChange={e => updateItem(item.id, 'item_type', e.target.value)}>
+                        {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    ) : (
+                      <div className="form-input flex-1 bg-slate-50 text-slate-500 cursor-not-allowed">{item.item_type}</div>
+                    )}
+                    
                     <div className="relative w-32">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-gray-4 text-sm">£</span>
                       <input
-                        type="number"
-                        step="0.01"
-                        className="form-input pl-7 w-full"
+                        type="number" step="0.01" className="form-input pl-7 w-full"
                         value={item.amount}
+                        disabled={!isAdminOrDirector}
                         onChange={e => updateItem(item.id, 'amount', e.target.value)}
                       />
                     </div>
-                    <button onClick={() => removeItem(item.id)} className="text-danger-red hover:text-red-700 p-1">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    {isAdminOrDirector && (
+                      <button onClick={() => removeItem(item.id)} className="text-danger-red hover:text-red-700 p-1">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
                 ))}
-                <button onClick={addItem} className="btn-primary gap-1">
-                  <Plus className="h-4 w-4" /> Add Item
-                </button>
+                {isAdminOrDirector && (
+                  <button onClick={addItem} className="btn-primary gap-1">
+                    <Plus className="h-4 w-4" /> Add Item
+                  </button>
+                )}
               </div>
               <div className="mt-4 flex items-center justify-between border-t pt-3">
                 <span className="font-semibold text-ink-gray-7">Total</span>
                 <span className="text-xl font-bold text-ink-gray-9">{formatCurrency(total)}</span>
               </div>
-              <div className="mt-3 flex justify-end">
-                <button onClick={saveItems} disabled={saving} className="btn-solid gap-1">
-                  <Save className="h-4 w-4" />
-                  {saving ? 'Saving...' : 'Save Items'}
-                </button>
-              </div>
+              {isAdminOrDirector && (
+                <div className="mt-3 flex justify-end">
+                  <button onClick={saveItems} disabled={saving} className="btn-solid gap-1">
+                    <Save className="h-4 w-4" />
+                    {saving ? 'Saving...' : 'Save Items'}
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Priority */}
@@ -457,6 +681,7 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
               <select
                 className="form-input w-48"
                 defaultValue={order.priority as string}
+                disabled={!isAdminOrDirector}
                 onChange={async e => {
                   await supabase.from('orders').update({ priority: e.target.value }).eq('id', order.id)
                   toast.success('Priority updated')
@@ -467,7 +692,143 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
               </select>
             </div>
 
-            {/* ─── STRIPE PAYMENT ACTIONS ────────────────────────── */}
+            {/* Submission Checklist & Monitor Stage (LRT only) */}
+            {brand?.code === 'LRT' && (
+              <div className="panel border-indigo-100 bg-indigo-50/30">
+                <div className="section-heading flex items-center gap-2 text-indigo-800">
+                  <CheckSquare className="h-4 w-4" /> Title Deed Submission Checklist
+                </div>
+                
+                <div className="grid gap-4 md:grid-cols-2 mt-4">
+                  {/* Requirements Toggles */}
+                  <div className="space-y-3">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Required Documents</label>
+                    <div className="space-y-2">
+                      {[
+                        { key: 'id_verified', label: 'ID Verification Completed' },
+                        { key: 'form_signed', label: 'Application Form Signed' },
+                        { key: 'docs_uploaded', label: 'Supporting Docs Uploaded' }
+                      ].map(req => (
+                        <label key={req.key} className="flex items-center gap-2 cursor-pointer bg-white p-2 rounded border shadow-sm hover:border-indigo-200 transition-colors">
+                          <input 
+                            type="checkbox" 
+                            disabled={!isAdminOrDirector}
+                            checked={!!submissionReqs[req.key]}
+                            onChange={async (e) => {
+                              const newReqs = { ...submissionReqs, [req.key]: e.target.checked }
+                              setSubmissionReqs(newReqs)
+                              await supabase.from('orders').update({ submission_requirements: newReqs }).eq('id', order.id)
+                              toast.success('Checklist updated')
+                              
+                              // Log timeline note
+                              const { data: note } = await supabase.from('order_notes').insert({
+                                order_id: order.id,
+                                author_id: (await supabase.auth.getUser()).data.user?.id,
+                                content: `Marked "${req.label}" as ${e.target.checked ? 'Complete' : 'Incomplete'}`,
+                                is_internal: true
+                              }).select('*, user:users(full_name, avatar_url)').single()
+                              if (note) setNotes(prev => [note as any, ...prev])
+                            }}
+                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                          />
+                          <span className={cn("text-sm font-medium", submissionReqs[req.key] ? "text-indigo-900" : "text-slate-600")}>
+                            {req.label}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Stage Dropdown */}
+                  <div className="space-y-3">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Monitor Stage</label>
+                    <div className="bg-white p-3 rounded border shadow-sm">
+                      <select
+                        className="form-input w-full font-medium"
+                        value={monitorStage}
+                        disabled={!isAdminOrDirector}
+                        onChange={async e => {
+                          const newStage = e.target.value
+                          setMonitorStage(newStage)
+                          await supabase.from('orders').update({ monitor_stage: newStage }).eq('id', order.id)
+                          toast.success('Monitor stage updated')
+                          
+                          const { data: note } = await supabase.from('order_notes').insert({
+                            order_id: order.id,
+                            author_id: (await supabase.auth.getUser()).data.user?.id,
+                            content: `Moved application stage to: ${newStage.replace('_', ' ').toUpperCase()}`,
+                            is_internal: true
+                          }).select('*, user:users(full_name, avatar_url)').single()
+                          if (note) setNotes(prev => [note as any, ...prev])
+                        }}
+                      >
+                        <option value="awaiting">Awaiting Information</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="submitted">Submitted</option>
+                        <option value="completed">Completed</option>
+                      </select>
+                      <p className="text-xs text-slate-500 mt-2">
+                        Updating this stage will instantly move the application on the <a href="/admin/monitor" className="text-indigo-600 hover:underline">Title Deed Monitor</a> board.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Deferral Panel */}
+            {isAdminOrDirector && (
+              <div className="panel border-indigo-100">
+                <div className="section-heading flex items-center gap-2 text-indigo-700">
+                  <Clock className="h-4 w-4" /> Defer Application
+                </div>
+                
+                {(order as any).deferred_until ? (
+                  <div className="mt-3 bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                    <p className="text-sm text-indigo-900 mb-2">
+                      <strong>Currently Deferred.</strong> Will resume processing on <span className="font-bold">{formatDateTime((order as any).deferred_until)}</span>
+                    </p>
+                    <p className="text-xs text-indigo-700 bg-white/60 p-2 rounded border border-indigo-100 mb-3">
+                      <strong>Reason:</strong> {(order as any).deferred_reason}
+                    </p>
+                    <button onClick={handleResume} disabled={saving} className="btn-outline gap-1 border-indigo-300 text-indigo-700 hover:bg-indigo-100">
+                      <RefreshCcw className="h-4 w-4" /> {saving ? 'Resuming...' : 'Resume Processing Early'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-3">
+                    <p className="text-xs text-ink-gray-5 mb-3">
+                      Place this application on hold if you are waiting for customer clarification or missing documents.
+                    </p>
+                    {showDeferModal ? (
+                      <div className="space-y-3 bg-slate-50 border border-slate-200 p-4 rounded-lg">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Review Date</label>
+                          <input type="datetime-local" className="form-input w-full" value={deferDate} onChange={e => setDeferDate(e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Reason / Notes</label>
+                          <textarea className="form-input w-full min-h-[80px]" placeholder="Waiting for ID documents..." value={deferReason} onChange={e => setDeferReason(e.target.value)}></textarea>
+                        </div>
+                        <div className="flex gap-2 justify-end pt-2">
+                          <button onClick={() => setShowDeferModal(false)} className="btn-outline">Cancel</button>
+                          <button onClick={handleDefer} disabled={saving || !deferDate} className="btn-solid bg-indigo-600 hover:bg-indigo-700 text-white">
+                            {saving ? 'Deferring...' : 'Confirm Deferral'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => setShowDeferModal(true)} className="btn-outline gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50">
+                        <Clock className="h-4 w-4" /> Defer Application
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+
+            {/* STRIPE PAYMENT ACTIONS */}
             {status !== 'paid' && status !== 'dead' && (
               <div className="panel">
                 <div className="section-heading flex items-center gap-2">
@@ -475,88 +836,40 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
                   Payment Actions
                 </div>
 
-                {/* Stripe Elements Payment Form */}
                 {showPaymentForm && paymentClientSecret ? (
                   <div className="mt-3">
-                    <div className="mb-3 rounded-lg bg-surface-blue border border-accent-blue/20 px-4 py-3 text-sm text-ink-blue">
-                      <strong>Secure Card Payment</strong> — Enter the customer&apos;s card details below.
-                      Card data is handled securely by Stripe and never touches our servers.
-                    </div>
-                    <Elements
-                      stripe={stripePromise}
-                      options={{
-                        clientSecret: paymentClientSecret,
-                        appearance: {
-                          theme: 'stripe',
-                          variables: {
-                            colorPrimary: '#16243B',
-                            borderRadius: '8px',
-                          },
-                        },
-                      }}
-                    >
+                    <Elements stripe={stripePromise} options={{ clientSecret: paymentClientSecret, appearance: { theme: 'stripe' } }}>
                       <StripePaymentForm
                         orderId={order.id as string}
                         amount={total || Number(order.amount_total)}
-                        onSuccess={() => {
-                          setShowPaymentForm(false)
-                          setPaymentClientSecret(null)
-                          router.refresh()
-                        }}
-                        onCancel={() => {
-                          setShowPaymentForm(false)
-                          setPaymentClientSecret(null)
-                        }}
+                        onSuccess={() => { setShowPaymentForm(false); setPaymentClientSecret(null) }}
+                        onCancel={() => { setShowPaymentForm(false); setPaymentClientSecret(null) }}
                       />
                     </Elements>
                   </div>
                 ) : (
                   <div className="space-y-2 mt-3">
-                    {/* Send Payment Link */}
-                    <button
-                      onClick={sendPaymentLink}
-                      disabled={generatingLink}
-                      className="btn-primary w-full py-3 text-base font-semibold gap-2"
-                    >
-                      {generatingLink ? (
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                      ) : copiedLink ? (
-                        <Check className="h-5 w-5" />
-                      ) : (
-                        <Link2 className="h-5 w-5" />
-                      )}
+                    <button onClick={sendPaymentLink} disabled={generatingLink} className="btn-primary w-full py-3 text-base font-semibold gap-2">
+                      {generatingLink ? <Loader2 className="h-5 w-5 animate-spin" /> : copiedLink ? <Check className="h-5 w-5" /> : <Link2 className="h-5 w-5" />}
                       {generatingLink ? 'Generating...' : copiedLink ? 'Link Copied!' : 'Send Payment Link'}
                     </button>
-
-                    {/* Take Payment on Call */}
-                    <button
-                      onClick={startTakePayment}
-                      className="btn-success w-full py-3 text-base font-semibold gap-2"
-                    >
-                      <CreditCard className="h-5 w-5" />
-                      Take Payment on Call
+                    <button onClick={startTakePayment} className="btn-success w-full py-3 text-base font-semibold gap-2">
+                      <CreditCard className="h-5 w-5" /> Take Payment on Call
                     </button>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Stripe Payment Info (for paid orders) */}
             {status === 'paid' && stripePaymentId && (
               <div className="panel">
                 <div className="section-heading flex items-center gap-2">
-                  <CreditCard className="h-4 w-4" />
-                  Payment Information
+                  <CreditCard className="h-4 w-4" /> Payment Information
                 </div>
                 <div className="mt-3 space-y-3">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-ink-gray-5">Stripe Payment ID</span>
-                    <a
-                      href={`https://dashboard.stripe.com/payments/${stripePaymentId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono text-xs text-accent-blue hover:underline inline-flex items-center gap-1"
-                    >
+                    <a href={`https://dashboard.stripe.com/payments/${stripePaymentId}`} target="_blank" rel="noopener noreferrer" className="font-mono text-xs text-accent-blue hover:underline inline-flex items-center gap-1">
                       {stripePaymentId} <ExternalLink className="h-3 w-3" />
                     </a>
                   </div>
@@ -568,12 +881,10 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
               </div>
             )}
 
-            {/* Refund Button (director only, paid orders with stripe ID) */}
             {canRefund && (
               <div className="panel border-red-200">
                 <div className="section-heading flex items-center gap-2 text-danger-red">
-                  <RotateCcw className="h-4 w-4" />
-                  Refund
+                  <RotateCcw className="h-4 w-4" /> Refund
                 </div>
                 {showRefundModal ? (
                   <div className="mt-3 space-y-3">
@@ -584,34 +895,19 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
                       <label className="form-label">Refund Amount (leave blank for full refund)</label>
                       <div className="relative w-48">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-gray-4 text-sm">£</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="form-input pl-7 w-full"
-                          placeholder={String(order.amount_total)}
-                          value={refundAmount}
-                          onChange={e => setRefundAmount(e.target.value)}
-                        />
+                        <input type="number" step="0.01" className="form-input pl-7 w-full" placeholder={String(order.amount_total)} value={refundAmount} onChange={e => setRefundAmount(e.target.value)} />
                       </div>
                     </div>
                     <div>
                       <label className="form-label">Reason</label>
-                      <select
-                        className="form-input w-64"
-                        value={refundReason}
-                        onChange={e => setRefundReason(e.target.value)}
-                      >
+                      <select className="form-input w-64" value={refundReason} onChange={e => setRefundReason(e.target.value)}>
                         <option value="requested_by_customer">Requested by Customer</option>
                         <option value="duplicate">Duplicate</option>
                         <option value="fraudulent">Fraudulent</option>
                       </select>
                     </div>
                     <div className="flex gap-3">
-                      <button
-                        onClick={processRefund}
-                        disabled={processingRefund}
-                        className="btn-danger gap-2"
-                      >
+                      <button onClick={processRefund} disabled={processingRefund} className="btn-danger gap-2">
                         {processingRefund ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
                         {processingRefund ? 'Processing...' : 'Confirm Refund'}
                       </button>
@@ -619,29 +915,158 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
                     </div>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => setShowRefundModal(true)}
-                    className="btn-danger w-full py-3 text-base font-semibold gap-2 mt-3"
-                  >
-                    <RotateCcw className="h-5 w-5" />
-                    Issue Refund
+                  <button onClick={() => setShowRefundModal(true)} className="btn-danger w-full py-3 text-base font-semibold gap-2 mt-3">
+                    <RotateCcw className="h-5 w-5" /> Issue Refund
                   </button>
                 )}
               </div>
             )}
 
-            {/* Status actions */}
             <div className="space-y-2">
               {status !== 'dead' && (
-                <button onClick={() => setStatus('dead')} className="btn-danger w-full py-3 text-base font-semibold">
+                <button onClick={() => setOrderStatus('dead')} className="btn-danger w-full py-3 text-base font-semibold">
                   Dead
                 </button>
               )}
               {status !== 'paid' && (
-                <button onClick={() => setStatus('no_answer')} className="btn-warning w-full py-3 text-base font-semibold">
+                <button onClick={() => setOrderStatus('no_answer')} className="btn-warning w-full py-3 text-base font-semibold">
                   No Answer / Non-UK Phone Number
                 </button>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* APPOINTMENTS TAB */}
+        {activeTab === 'appointments' && (
+          <div className="max-w-2xl space-y-6">
+            <div className="flex justify-between items-center bg-purple-50 p-4 rounded-xl border border-purple-100">
+              <div>
+                <h2 className="font-bold text-slate-800 text-sm">ID Verification Bookings</h2>
+                <p className="text-xs text-slate-500 mt-1">Status: {status === 'paid' ? <strong className="text-emerald-600">PAID</strong> : <strong className="text-amber-600">UNPAID</strong>} (Time slots usually require payment)</p>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowAppointmentForm(true)
+                  setReschedulingId(null)
+                  setAppointmentDate('')
+                  setAppointmentTime('')
+                  setAppointmentNotes('')
+                  setAppointmentSolicitor('')
+                }} 
+                className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
+              >
+                + Book Appointment
+              </button>
+            </div>
+            
+            {showAppointmentForm && (
+              <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                <h3 className="font-bold text-slate-800 text-sm mb-4 border-b pb-2">
+                  {reschedulingId ? 'Reschedule Appointment' : 'New Appointment'}
+                </h3>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Date</label>
+                    <input type="date" className="form-input w-full text-sm" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Time</label>
+                    <input type="time" className="form-input w-full text-sm" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} />
+                  </div>
+                </div>
+                <div className="mb-4">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Assign Solicitor (Optional)</label>
+                  <select className="form-input w-full text-sm" value={appointmentSolicitor} onChange={e => setAppointmentSolicitor(e.target.value)}>
+                    <option value="">-- Unassigned --</option>
+                    {staff.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                  </select>
+                </div>
+                <div className="mb-4">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Notes</label>
+                  <textarea className="form-input w-full text-sm resize-none" rows={2} value={appointmentNotes} onChange={e => setAppointmentNotes(e.target.value)}></textarea>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setShowAppointmentForm(false)} className="btn-outline text-xs py-1.5">Cancel</button>
+                  <button onClick={handleSaveAppointment} disabled={saving} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-md text-xs font-bold">
+                    {saving ? 'Saving...' : 'Save Booking'}
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            <div className="space-y-3">
+              {appointments.length === 0 && !showAppointmentForm && (
+                <div className="text-center p-8 bg-slate-50 border border-slate-100 rounded-xl">
+                  <Calendar className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm font-medium text-slate-500">No appointments scheduled</p>
+                </div>
+              )}
+              {appointments.map(appt => (
+                <div key={appt.id} className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                  <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50/50">
+                    <div className="flex items-center gap-3">
+                      <Calendar className="h-5 w-5 text-purple-600" />
+                      <div>
+                        <div className="font-bold text-slate-800">{formatDateTime(appt.scheduled_at)}</div>
+                        <div className="text-xs font-medium text-slate-500 mt-0.5">Solicitor: {appt.solicitor?.full_name || 'Unassigned'}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge 
+                        label={appt.status.toUpperCase()} 
+                        variant={appt.status === 'completed' ? 'green' : appt.status === 'rescheduled' ? 'orange' : appt.status === 'cancelled' ? 'red' : 'blue'} 
+                      />
+                    </div>
+                  </div>
+                  
+                  {appt.notes && (
+                    <div className="p-4 border-b border-slate-100 text-sm text-slate-600 bg-white">
+                      <strong>Notes:</strong> {appt.notes}
+                    </div>
+                  )}
+                  
+                  {appt.reschedule_history && appt.reschedule_history.length > 0 && (
+                    <div className="p-4 border-b border-slate-100 bg-amber-50/30">
+                      <p className="text-xs font-bold text-amber-800 mb-2 flex items-center gap-1.5"><RefreshCcw className="h-3 w-3" /> Reschedule History</p>
+                      <ul className="space-y-1">
+                        {appt.reschedule_history.map((h, i) => (
+                          <li key={i} className="text-[11px] text-amber-700 font-medium">
+                            • Was scheduled for {formatDateTime(h.old_scheduled_at)} (Moved on {new Date(h.rescheduled_at).toLocaleDateString('en-GB')})
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  <div className="p-3 bg-slate-50 flex gap-2 justify-end">
+                    {appt.status !== 'completed' && appt.status !== 'cancelled' && (
+                      <>
+                        <button 
+                          onClick={() => {
+                            const d = new Date(appt.scheduled_at)
+                            setAppointmentDate(d.toISOString().split('T')[0])
+                            setAppointmentTime(d.toTimeString().substring(0, 5))
+                            setAppointmentSolicitor(appt.solicitor_id || '')
+                            setAppointmentNotes(appt.notes || '')
+                            setReschedulingId(appt.id)
+                            setShowAppointmentForm(true)
+                          }}
+                          className="text-[11px] font-bold px-3 py-1.5 border border-slate-200 rounded-md bg-white hover:bg-slate-100 text-slate-700"
+                        >
+                          Reschedule
+                        </button>
+                        <button onClick={() => updateAppointmentStatus(appt.id, 'completed')} className="text-[11px] font-bold px-3 py-1.5 border border-emerald-200 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700">
+                          Mark Completed
+                        </button>
+                        <button onClick={() => updateAppointmentStatus(appt.id, 'cancelled')} className="text-[11px] font-bold px-3 py-1.5 border border-red-200 rounded-md bg-red-50 hover:bg-red-100 text-red-700">
+                          Cancel
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -678,7 +1103,6 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
         {/* NOTES / TIMELINE TAB */}
         {activeTab === 'notes' && (
           <div className="max-w-2xl space-y-4">
-            {/* Add note */}
             <div className="panel">
               <textarea
                 className="form-input w-full resize-none"
@@ -692,7 +1116,6 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
               </div>
             </div>
 
-            {/* Timeline */}
             <div className="space-y-0">
               {notes.map((note, i) => (
                 <div key={note.id} className="activity-item">
@@ -725,7 +1148,6 @@ export default function OrderDetailClient({ order, relatedOrders, userRole }: Pr
         )}
       </div>
 
-      {/* Copy link overlay */}
       {copiedLink && (
         <div className="fixed bottom-6 right-6 bg-navy text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 text-sm font-medium animate-in slide-in-from-bottom-4">
           <Copy className="h-4 w-4" />

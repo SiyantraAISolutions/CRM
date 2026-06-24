@@ -65,7 +65,7 @@ export interface WizardField {
   readOnly?: boolean
 }
 
-export type OrderStatus = 'lead' | 'processing' | 'paid' | 'dead' | 'no_answer' | 'abandoned'
+export type OrderStatus = 'lead' | 'processing' | 'in_progress' | 'completed' | 'paid' | 'dead' | 'no_answer' | 'abandoned'
 export type OrderPriority = 'standard' | 'fast_track'
 
 export interface Order {
@@ -102,6 +102,8 @@ export interface Order {
   stripe_payment_intent_id?: string
   document_delivered?: boolean
   document_url?: string
+  tracking_number?: string
+  postage_provider?: string
   created_at: string
   updated_at: string
   items?: OrderItem[]

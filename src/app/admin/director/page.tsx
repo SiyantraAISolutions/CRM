@@ -24,7 +24,7 @@ export default async function DirectorPage({ searchParams }: Props) {
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
 
-  let ordersQuery = supabase.from('orders').select('id, status, amount_total, created_at, business_id, user_id').gte('created_at', thirtyDaysAgo)
+  let ordersQuery = supabase.from('orders').select('id, status, amount_total, created_at, business_id, user_id, completed_by, form_type:form_types(id, name)').gte('created_at', thirtyDaysAgo)
   let paymentsQuery = supabase.from('payments').select('id, amount, status, created_at, business_id')
   let enquiriesQuery = supabase.from('enquiries').select('id, pipeline_stage, created_at, business_id, assigned_to').gte('created_at', thirtyDaysAgo)
 
@@ -42,6 +42,7 @@ export default async function DirectorPage({ searchParams }: Props) {
     { data: teamMembers },
     { data: allTasks },
     { data: activityLogs },
+    { data: staffAttendance },
   ] = await Promise.all([
     ordersQuery,
     paymentsQuery,
@@ -49,7 +50,8 @@ export default async function DirectorPage({ searchParams }: Props) {
     supabase.from('businesses').select('id, name, colour').eq('status', 'active'),
     supabase.from('users').select('id, full_name, role, sales_target, current_status, status_started_at, avatar_url'),
     supabase.from('tasks').select('id, title, description, assigned_to, created_by, due_at, status, priority, created_at'),
-    supabase.from('activity_logs').select('id, user_id, status, started_at, ended_at').gte('created_at', thirtyDaysAgo)
+    supabase.from('activity_logs').select('id, user_id, status, started_at, ended_at').gte('created_at', thirtyDaysAgo),
+    supabase.from('staff_attendance').select('*').gte('clock_in', thirtyDaysAgo).order('clock_in', { ascending: false })
   ])
 
   return (
@@ -65,6 +67,7 @@ export default async function DirectorPage({ searchParams }: Props) {
         teamMembers={teamMembers ?? []}
         tasks={allTasks ?? []}
         activityLogs={activityLogs ?? []}
+        staffAttendance={staffAttendance ?? []}
       />
     </div>
   )

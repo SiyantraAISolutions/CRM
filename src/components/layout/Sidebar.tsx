@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Ticket, ShoppingCart, Plus, HelpCircle,
   Archive, BookOpen, Shield, LogOut, ChevronLeft, ChevronRight,
   Bell, TrendingUp, CheckSquare, CreditCard, Users, Settings,
-  MessageSquare, Building2,
+  MessageSquare, Building2, Layers, Mail, Calendar, Activity, PieChart
 } from 'lucide-react'
 
 interface BadgeCounts {
@@ -30,6 +30,10 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
   const supabase = createClient()
   const [collapsed, setCollapsed] = useState(false)
   const [counts, setCounts] = useState(badgeCounts ?? { tickets: 0, helpRequests: 0, abandoned: 0, notifications: 0 })
+  const [services, setServices] = useState<{ id: string; name: string; code: string }[]>([])
+  const [servicesExpanded, setServicesExpanded] = useState(false)
+  const [emailTemplates, setEmailTemplates] = useState<{ id: string; name: string }[]>([])
+  const [templatesExpanded, setTemplatesExpanded] = useState(false)
 
   // Live badge counts via Supabase realtime
   useEffect(() => {
@@ -53,6 +57,19 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
     return () => clearInterval(interval)
   }, [supabase])
 
+  // Fetch Services & Templates Once
+  useEffect(() => {
+    async function fetchData() {
+      const [{ data: sData }, { data: tData }] = await Promise.all([
+        supabase.from('form_types').select('id, name, code').order('name'),
+        supabase.from('email_templates').select('id, name').order('name')
+      ])
+      if (sData) setServices(sData)
+      if (tData) setEmailTemplates(tData)
+    }
+    fetchData()
+  }, [supabase])
+
   type NavItem = {
     label: string
     href: string
@@ -63,15 +80,19 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
 
   const navItems: NavItem[] = [
     { label: 'All Our Services', href: '/admin', icon: LayoutDashboard },
+    { label: 'Process Panel', href: '/admin/process', icon: Layers },
+    { label: 'Deed Monitor', href: '/admin/monitor', icon: Activity },
     { label: 'Tickets', href: '/admin/tickets', icon: Ticket, badge: counts.tickets },
     { label: 'Orders', href: '/admin/orders', icon: ShoppingCart },
     { label: 'Enquiries', href: '/admin/enquiries', icon: MessageSquare },
     { label: 'Create Order', href: '/admin/create-order', icon: Plus },
+    { label: 'ID Verifications', href: '/admin/appointments', icon: Calendar },
     { label: 'Help Requests', href: '/admin/help-requests', icon: HelpCircle, badge: counts.helpRequests },
     { label: 'Abandoned', href: '/admin/abandoned', icon: Archive, badge: counts.abandoned },
     { label: 'Tasks', href: '/admin/tasks', icon: CheckSquare },
     { label: 'Payments', href: '/admin/payments', icon: CreditCard, roles: ['director'] },
     { label: 'Team', href: '/admin/team', icon: Users, roles: ['director'] },
+    { label: 'Director Portal', href: '/admin/director', icon: PieChart, roles: ['director'] },
     { label: 'Settings', href: '/admin/settings', icon: Settings, roles: ['director'] },
   ]
 
@@ -164,6 +185,69 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
             </Link>
           )
         })}
+
+        {/* Dynamic Services List */}
+        {!collapsed && services.length > 0 && (
+          <div className="pt-4 pb-2 mt-4 border-t border-purple-100">
+            <button
+              onClick={() => setServicesExpanded(!servicesExpanded)}
+              className="flex w-full items-center justify-between px-3 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
+            >
+              <span className="uppercase tracking-wider text-[10px]">Active Services</span>
+              <ChevronRight className={cn("h-3 w-3 transition-transform", servicesExpanded && "rotate-90")} />
+            </button>
+            
+            {servicesExpanded && (
+              <div className="mt-2 space-y-0.5">
+                {services.map(service => (
+                  <Link
+                    key={service.id}
+                    href={`/admin/create-order?form_type_id=${service.id}`}
+                    className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-[11px] font-medium text-slate-500 hover:bg-purple-50 hover:text-purple-700 transition-colors truncate"
+                  >
+                    <BookOpen className="h-3 w-3 flex-shrink-0 text-slate-400" />
+                    <span className="truncate">{service.name}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Email Templates List */}
+        {!collapsed && (
+          <div className="pt-4 pb-2 mt-2 border-t border-purple-100">
+            <button
+              onClick={() => setTemplatesExpanded(!templatesExpanded)}
+              className="flex w-full items-center justify-between px-3 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
+            >
+              <span className="uppercase tracking-wider text-[10px]">Email Templates</span>
+              <ChevronRight className={cn("h-3 w-3 transition-transform", templatesExpanded && "rotate-90")} />
+            </button>
+            
+            {templatesExpanded && (
+              <div className="mt-2 space-y-0.5">
+                <Link
+                  href="/admin/templates"
+                  className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-[11px] font-bold text-purple-600 hover:bg-purple-50 transition-colors"
+                >
+                  <Plus className="h-3 w-3 flex-shrink-0" />
+                  <span>Manage / Add Templates</span>
+                </Link>
+                {emailTemplates.map(t => (
+                  <Link
+                    key={t.id}
+                    href={`/admin/templates?id=${t.id}`}
+                    className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-[11px] font-medium text-slate-500 hover:bg-purple-50 hover:text-purple-700 transition-colors truncate"
+                  >
+                    <Mail className="h-3 w-3 flex-shrink-0 text-slate-400" />
+                    <span className="truncate">{t.name}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
 
       {/* Footer */}

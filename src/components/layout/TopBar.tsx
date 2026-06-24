@@ -3,12 +3,13 @@
 import { useState, useEffect } from 'react'
 
 import { useRouter } from 'next/navigation'
-import { Bell, Search, ChevronDown, LogOut, User, Volume2, Loader2 } from 'lucide-react'
+import { Bell, Search, ChevronDown, LogOut, User, Volume2, Loader2, Clock } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import Avatar from '@/components/ui/Avatar'
 import { useBusiness } from '@/context/BusinessContext'
 import type { UserRole } from '@/types'
+import { toast } from 'sonner'
 
 interface TopBarProps {
   role: UserRole
@@ -32,6 +33,64 @@ export default function TopBar({ role, userName, userEmail, avatarUrl, notificat
   const [searching, setSearching] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+
+  // Clock In / Out State
+  const [clockedIn, setClockedIn] = useState(false)
+  const [attendanceId, setAttendanceId] = useState<string | null>(null)
+  const [clockLoading, setClockLoading] = useState(false)
+
+  useEffect(() => {
+    async function checkAttendance() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase
+        .from('staff_attendance')
+        .select('id, clock_in, clock_out')
+        .eq('user_id', user.id)
+        .is('clock_out', null)
+        .order('clock_in', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        
+      if (data) {
+        setClockedIn(true)
+        setAttendanceId(data.id)
+      }
+    }
+    checkAttendance()
+  }, [supabase])
+
+  async function handleToggleClock() {
+    setClockLoading(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      setClockLoading(false)
+      return
+    }
+
+    if (clockedIn && attendanceId) {
+      const { error } = await supabase.from('staff_attendance').update({ clock_out: new Date().toISOString() }).eq('id', attendanceId)
+      if (!error) {
+        setClockedIn(false)
+        setAttendanceId(null)
+        toast.success('You have clocked out.')
+      } else {
+        toast.error('Failed to clock out.')
+      }
+    } else {
+      const { data, error } = await supabase.from('staff_attendance').insert({
+        user_id: user.id,
+      }).select().single()
+      if (data && !error) {
+        setClockedIn(true)
+        setAttendanceId(data.id)
+        toast.success('You have clocked in.')
+      } else {
+        toast.error('Failed to clock in.')
+      }
+    }
+    setClockLoading(false)
+  }
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -280,6 +339,26 @@ export default function TopBar({ role, userName, userEmail, avatarUrl, notificat
       </div>
 
       <div className="flex-1" />
+
+      {/* Clock In / Out */}
+      <button 
+        onClick={handleToggleClock}
+        disabled={clockLoading}
+        className={cn(
+          "mr-4 flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-bold transition-all duration-200 shadow-sm",
+          clockedIn 
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+          clockLoading && "opacity-50 cursor-not-allowed"
+        )}
+      >
+        {clockLoading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Clock className="h-3.5 w-3.5" />
+        )}
+        {clockedIn ? 'Clocked In' : 'Clock In'}
+      </button>
 
       {/* Notifications */}
       <div className="flex items-center gap-1">

@@ -21,11 +21,20 @@ export default function HelpRequestsClient({ brands }: { brands: Brand[] }) {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [brandFilter, setBrandFilter] = useState('all')
+  const [staff, setStaff] = useState<{ id: string, full_name: string }[]>([])
+
+  useEffect(() => {
+    async function loadStaff() {
+      const { data } = await supabase.from('users').select('id, full_name').in('role', ['sales', 'admin', 'director'])
+      if (data) setStaff(data)
+    }
+    loadStaff()
+  }, [supabase])
 
   const fetch = useCallback(async () => {
     setLoading(true)
     let q = supabase.from('help_requests')
-      .select('*, brand:brands(id,code,name)', { count: 'exact' })
+      .select('*, brand:brands(id,code,name), assignee:users(id,full_name)', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range((page - 1) * 10, page * 10 - 1)
 
@@ -51,15 +60,20 @@ export default function HelpRequestsClient({ brands }: { brands: Brand[] }) {
 
 
   const columns: Column<Record<string, unknown>>[] = [
-    { key: 'id', label: 'Request ID', render: (v) => <span className="font-mono text-xs">#{String(v).slice(-6).toUpperCase()}</span> },
-    { key: 'subject', label: 'Title', sortable: true },
+    { key: 'id', label: 'Request ID', render: (v) => <span className="font-mono text-xs text-slate-500">#{String(v).slice(-6).toUpperCase()}</span> },
+    { 
+      key: 'subject', 
+      label: 'Issue / Subject', 
+      sortable: true,
+      render: (v) => <span className="font-bold text-slate-900 text-[13px]">{String(v)}</span>
+    },
     {
       key: 'customer_email',
       label: 'Email / Name',
       render: (_, row) => (
         <div>
-          <div className="text-sm">{String(row.customer_name ?? '')}</div>
-          <div className="text-xs text-ink-gray-4">{String(row.customer_email ?? '')}</div>
+          <div className="text-sm font-bold text-slate-800">{String(row.customer_name || 'Unknown Customer')}</div>
+          <div className="text-[11px] text-slate-500 font-medium">{String(row.customer_email || 'No email')}</div>
         </div>
       )
     },
@@ -70,7 +84,27 @@ export default function HelpRequestsClient({ brands }: { brands: Brand[] }) {
     { key: 'created_at', label: 'Date', render: (v) => <span className="text-xs">{formatDateTime(String(v))}</span> },
     {
       key: 'brand', label: 'Site',
-      render: (v) => <span className="text-xs">{(v as { name: string } | null)?.name}</span>
+      render: (v) => <span className="text-xs text-slate-500">{(v as { name: string } | null)?.name}</span>
+    },
+    {
+      key: 'assigned_to', label: 'Assigned To',
+      render: (v, row) => (
+        <select
+          className="form-input py-1 text-xs bg-purple-50/50 border-purple-100 font-semibold text-purple-800 w-32"
+          value={String(v || '')}
+          onClick={(e) => e.stopPropagation()}
+          onChange={async (e) => {
+            const newAssignee = e.target.value || null
+            await supabase.from('help_requests').update({ assigned_to: newAssignee }).eq('id', row.id)
+            fetch()
+          }}
+        >
+          <option value="">Unassigned</option>
+          {staff.map(s => (
+            <option key={s.id} value={s.id}>{s.full_name}</option>
+          ))}
+        </select>
+      )
     },
   ]
 

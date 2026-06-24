@@ -16,13 +16,14 @@ import {
 import Avatar from '@/components/ui/Avatar'
 import { createClient } from '@/lib/supabase/client'
 
-interface Order { id: string; status: string; amount_total: number; created_at: string; business_id: string; user_id: string }
+interface Order { id: string; status: string; amount_total: number; created_at: string; business_id: string; user_id: string; completed_by?: string; form_type?: any }
 interface Payment { id: string; amount: number; status: string; created_at: string; business_id: string }
 interface Enquiry { id: string; pipeline_stage: string; created_at: string; business_id: string; assigned_to: string }
 interface Business { id: string; name: string; colour?: string }
 interface TeamMember { id: string; full_name: string; role: string; sales_target: number; current_status: string | null; status_started_at: string | null; avatar_url?: string }
 interface Task { id: string; title: string; description: string | null; assigned_to: string | null; created_by: string | null; due_at: string | null; status: string; priority: string; created_at: string }
 interface ActivityLog { id: string; user_id: string; status: string; started_at: string; ended_at: string | null }
+interface StaffAttendance { id: string; user_id: string; clock_in: string; clock_out: string | null }
 
 const CHART_COLORS = ['#7c3aed', '#a855f7', '#c084fc', '#8b5cf6', '#6d28d9', '#5b21b6']
 const STATUS_COLORS: Record<string, string> = {
@@ -42,8 +43,8 @@ const PRESENCE_STATUS_COLORS: Record<string, string> = {
   training: 'bg-purple-500',
 }
 
-export default function DirectorClient({ orders, payments, enquiries, businesses, teamMembers, tasks, activityLogs }: {
-  orders: Order[]; payments: Payment[]; enquiries: Enquiry[]; businesses: Business[]; teamMembers: TeamMember[]; tasks: Task[]; activityLogs: ActivityLog[]
+export default function DirectorClient({ orders, payments, enquiries, businesses, teamMembers, tasks, activityLogs, staffAttendance }: {
+  orders: Order[]; payments: Payment[]; enquiries: Enquiry[]; businesses: Business[]; teamMembers: TeamMember[]; tasks: Task[]; activityLogs: ActivityLog[]; staffAttendance: StaffAttendance[]
 }) {
   const supabase = createClient()
   const router = useRouter()
@@ -99,6 +100,37 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
     }))
   }, [enquiries])
 
+  // Staff Revenue by Service (Global)
+  const staffRevenueByService = useMemo(() => {
+    const list: { id: string; agentName: string; serviceName: string; revenue: number }[] = []
+    salesTeam.forEach(agent => {
+      const agentOrders = orders.filter(o => o.user_id === agent.id && (o.status === 'paid' || o.status === 'processing'))
+      const serviceMap: Record<string, number> = {}
+      agentOrders.forEach(o => {
+        const formTypeObj = Array.isArray(o.form_type) ? o.form_type[0] : o.form_type
+        const serviceName = formTypeObj?.name || 'Unknown Service'
+        serviceMap[serviceName] = (serviceMap[serviceName] || 0) + Number(o.amount_total)
+      })
+      Object.entries(serviceMap).forEach(([serviceName, revenue]) => {
+        if (revenue > 0) {
+          list.push({ id: `${agent.id}-${serviceName}`, agentName: agent.full_name, serviceName, revenue })
+        }
+      })
+    })
+    return list.sort((a, b) => b.revenue - a.revenue)
+  }, [salesTeam, orders])
+
+  // Global Timeline Logs
+  const globalTimelineLogs = useMemo(() => {
+    return [...activityLogs]
+      .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+      .slice(0, 10)
+      .map(log => {
+        const agent = teamMembers.find(m => m.id === log.user_id)
+        return { ...log, agentName: agent?.full_name || 'Unknown Agent' }
+      })
+  }, [activityLogs, teamMembers])
+
   // Individual agent performance
   const agentPerformance = useMemo(() => {
     return salesTeam.map(member => {
@@ -114,11 +146,16 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
       const completedTasks = memberTasks.filter(t => t.status === 'done').length
       const openTasks = memberTasks.filter(t => t.status !== 'done').length
 
+      const completedOrders = orders.filter(o => o.completed_by === member.id)
+      const totalCompletedSales = completedOrders.reduce((s, o) => s + Number(o.amount_total), 0)
+
       return {
         ...member,
         totalOrders: memberOrders.length,
         paidOrders: paidOrders.length,
         totalSales,
+        totalCompletedSales,
+        completedOrdersCount: completedOrders.length,
         wonEnquiries,
         convRate,
         target,
@@ -129,6 +166,30 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
       }
     }).sort((a, b) => b.totalSales - a.totalSales)
   }, [salesTeam, orders, enquiries, tasks])
+
+  // Staff Attendance Data
+  const attendanceData = useMemo(() => {
+    return teamMembers.map(member => {
+      const records = staffAttendance.filter(a => a.user_id === member.id)
+      const currentSession = records.find(a => !a.clock_out)
+      
+      let totalMinutesWorked = 0
+      records.forEach(r => {
+        const start = new Date(r.clock_in).getTime()
+        const end = r.clock_out ? new Date(r.clock_out).getTime() : new Date().getTime()
+        totalMinutesWorked += Math.max(0, (end - start) / 60000)
+      })
+
+      return {
+        id: member.id,
+        name: member.full_name,
+        role: member.role,
+        isClockedIn: !!currentSession,
+        clockInTime: currentSession ? currentSession.clock_in : null,
+        totalHoursWorked: (totalMinutesWorked / 60).toFixed(1)
+      }
+    }).sort((a, b) => Number(b.isClockedIn) - Number(a.isClockedIn))
+  }, [teamMembers, staffAttendance])
 
   // Selected agent performance detailed view
   const selectedAgent = useMemo(() => {
@@ -162,11 +223,27 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
     const agentOrders = orders.filter(o => o.user_id === agent.id)
     const agentTasks = tasks.filter(t => t.assigned_to === agent.id)
 
+    const revenueByService: Record<string, number> = {}
+    agentOrders.forEach(o => {
+      if (o.status === 'paid' || o.status === 'processing') {
+        const formTypeObj = Array.isArray(o.form_type) ? o.form_type[0] : o.form_type
+        const serviceName = formTypeObj?.name || 'Unknown Service'
+        revenueByService[serviceName] = (revenueByService[serviceName] || 0) + Number(o.amount_total)
+      }
+    })
+    const sortedRevenueByService = Object.entries(revenueByService)
+      .map(([name, total]) => ({ name, total }))
+      .sort((a, b) => b.total - a.total)
+
+    const timelineLogs = [...agentLogs].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+
     return {
       ...agent,
       daysWorked,
       breakStats,
       recentLogs: agentLogs.slice(0, 5),
+      timelineLogs,
+      revenueByService: sortedRevenueByService,
       recentOrders: agentOrders.slice(0, 5),
       tasks: agentTasks,
     }
@@ -309,8 +386,9 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
                 {/* Stats grid */}
                 <div className="flex items-center gap-6 flex-wrap">
                   <MiniStat label="Orders" value={String(agent.totalOrders)} icon={<ShoppingCart className="h-3 w-3 text-purple-500" />} />
-                  <MiniStat label="Converted" value={String(agent.paidOrders)} icon={<CheckSquare className="h-3 w-3 text-emerald-500" />} />
-                  <MiniStat label="Revenue" value={formatCurrency(agent.totalSales)} icon={<TrendingUp className="h-3 w-3 text-violet-500" />} />
+                  <MiniStat label="Completed Orders" value={String(agent.completedOrdersCount)} icon={<CheckCircle2 className="h-3 w-3 text-emerald-500" />} />
+                  <MiniStat label="Sales Revenue" value={formatCurrency(agent.totalSales)} icon={<TrendingUp className="h-3 w-3 text-violet-500" />} />
+                  <MiniStat label="Completed Rev" value={formatCurrency(agent.totalCompletedSales)} icon={<PieIcon className="h-3 w-3 text-pink-500" />} />
                   <MiniStat label="Conv. Rate" value={`${agent.convRate}%`} icon={<ArrowUpRight className="h-3 w-3 text-blue-500" />} />
                   <MiniStat label="Won Leads" value={String(agent.wonEnquiries)} icon={<UserCheck className="h-3 w-3 text-fuchsia-500" />} />
                   <MiniStat label="Tasks" value={`${agent.completedTasks}/${agent.totalTasks}`} icon={<CheckSquare className="h-3 w-3 text-amber-500" />} />
@@ -510,6 +588,121 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
         </div>
       </div>
 
+      {/* Global Staff Revenue & Activity Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        
+        {/* Global Staff Revenue by Service */}
+        <div className="bg-white rounded-2xl border border-purple-100 shadow-sm p-6">
+          <h3 className="text-sm font-bold text-slate-900 tracking-tight mb-6 flex items-center gap-2">
+            <PieIcon className="h-4 w-4 text-purple-600" /> Staff Revenue by Service
+          </h3>
+          <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1 scrollbar-thin">
+            {staffRevenueByService.map(item => {
+              const maxRev = Math.max(...staffRevenueByService.map(s => s.revenue), 1)
+              const pct = Math.round((item.revenue / maxRev) * 100)
+              return (
+                <div key={item.id}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span className="font-bold text-slate-800">{item.agentName}</span>
+                      <span className="text-slate-400">—</span>
+                      <span className="text-slate-600 font-semibold truncate">{item.serviceName}</span>
+                    </div>
+                    <span className="font-bold text-slate-900">{formatCurrency(item.revenue)}</span>
+                  </div>
+                  <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-purple-500 to-violet-500 rounded-full transition-all duration-700"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+            {staffRevenueByService.length === 0 && (
+              <div className="text-center py-6 text-xs text-slate-400">No revenue data available.</div>
+            )}
+          </div>
+        </div>
+
+        {/* Global Live Staff Presence & Clock History */}
+        <div className="bg-white rounded-2xl border border-purple-100 shadow-sm p-6">
+          <h3 className="text-sm font-bold text-slate-900 tracking-tight mb-6 flex items-center gap-2">
+            <Clock className="h-4 w-4 text-purple-600" /> Recent Staff Presence (Clock In/Out)
+          </h3>
+          <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 scrollbar-thin">
+            {globalTimelineLogs.map(log => {
+              let durationStr = 'Active'
+              if (log.ended_at) {
+                const mins = Math.round((new Date(log.ended_at).getTime() - new Date(log.started_at).getTime()) / 60000)
+                durationStr = formatMinutes(Math.max(0, mins))
+              }
+              return (
+                <div key={log.id} className="relative pl-4 border-l-2 border-purple-100 pb-3 last:pb-0">
+                  <div className={cn(
+                    "absolute -left-[5px] top-1.5 h-2 w-2 rounded-full border-2 border-white ring-1 ring-purple-100",
+                    PRESENCE_STATUS_COLORS[log.status] || 'bg-slate-400'
+                  )} />
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-800">{log.agentName}</span>
+                        <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-500">{log.status}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-medium mt-0.5">
+                        {new Date(log.started_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}
+                        {log.ended_at ? ` — ${new Date(log.ended_at).toLocaleTimeString('en-GB', { timeStyle: 'short' })}` : ' — Now'}
+                      </div>
+                    </div>
+                    <div className="text-[10px] font-extrabold text-slate-700 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
+                      {durationStr}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+            {globalTimelineLogs.length === 0 && (
+              <div className="text-center py-6 text-xs text-slate-400">No activity logs found.</div>
+            )}
+          </div>
+        </div>
+
+        {/* Staff Attendance Board */}
+        <div className="bg-white rounded-2xl border border-purple-100 shadow-sm p-6">
+          <h3 className="text-sm font-bold text-slate-900 tracking-tight mb-4 flex items-center gap-2">
+            <Clock className="h-4 w-4 text-purple-600" /> Live Attendance Board
+          </h3>
+          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1 scrollbar-thin">
+            {attendanceData.map(att => (
+              <div key={att.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:border-purple-200 hover:bg-purple-50/50 transition-colors">
+                <div className="flex items-center gap-3">
+                  <Avatar label={att.name} size="sm" />
+                  <div>
+                    <div className="text-xs font-bold text-slate-900">{att.name}</div>
+                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{att.role}</div>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end">
+                  {att.isClockedIn ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-black uppercase tracking-wider">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Clocked In
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-50 border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-wider">
+                      <span className="h-1.5 w-1.5 rounded-full bg-slate-400"></span> Clocked Out
+                    </span>
+                  )}
+                  <span className="text-[10px] font-bold text-slate-500 mt-1">
+                    {att.totalHoursWorked} hrs logged (30d)
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+      </div>
+
       {/* ─── INDIVIDUAL AGENT DETAILS MODAL ─── */}
       {selectedAgent && (
         <>
@@ -571,6 +764,74 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
                   <ProgressBarLabel label="Lunch Break" mins={selectedAgent.breakStats.lunch} maxMins={1200} icon={<Utensils className="h-3.5 w-3.5 text-orange-500" />} barColor="bg-orange-500" />
                   <ProgressBarLabel label="Short Breaks" mins={selectedAgent.breakStats.break} maxMins={600} icon={<Coffee className="h-3.5 w-3.5 text-amber-500" />} barColor="bg-amber-500" />
                   <ProgressBarLabel label="Auxiliary / Toilet" mins={selectedAgent.breakStats.toilet} maxMins={300} icon={<Clock className="h-3.5 w-3.5 text-slate-400" />} barColor="bg-slate-400" />
+                </div>
+              </div>
+
+              {/* Revenue by Service Breakdown */}
+              {selectedAgent.revenueByService.length > 0 && (
+                <div className="bg-white border border-purple-100 rounded-xl p-5">
+                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-1.5">
+                    <PieIcon className="h-4 w-4 text-purple-500" /> Revenue by Service
+                  </h4>
+                  <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1 scrollbar-thin">
+                    {selectedAgent.revenueByService.map(service => {
+                      const maxRev = Math.max(...selectedAgent.revenueByService.map(s => s.total), 1)
+                      const pct = Math.round((service.total / maxRev) * 100)
+                      return (
+                        <div key={service.name}>
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <span className="text-slate-700 font-semibold truncate pr-2">{service.name}</span>
+                            <span className="font-bold text-slate-900">{formatCurrency(service.total)}</span>
+                          </div>
+                          <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-gradient-to-r from-purple-500 to-violet-500 rounded-full transition-all duration-700"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Activity Timeline */}
+              <div className="bg-white border border-purple-100 rounded-xl p-5">
+                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-1.5">
+                  <Clock className="h-4 w-4 text-purple-500" /> Activity Timeline (Clock In/Out)
+                </h4>
+                <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 scrollbar-thin">
+                  {selectedAgent.timelineLogs.map(log => {
+                    let durationStr = 'Active'
+                    if (log.ended_at) {
+                      const mins = Math.round((new Date(log.ended_at).getTime() - new Date(log.started_at).getTime()) / 60000)
+                      durationStr = formatMinutes(Math.max(0, mins))
+                    }
+                    return (
+                      <div key={log.id} className="relative pl-4 border-l-2 border-purple-100 pb-2 last:pb-0">
+                        <div className={cn(
+                          "absolute -left-[5px] top-1.5 h-2 w-2 rounded-full border-2 border-white ring-1 ring-purple-100",
+                          PRESENCE_STATUS_COLORS[log.status] || 'bg-slate-400'
+                        )} />
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="text-xs font-bold text-slate-800 capitalize">{log.status}</div>
+                            <div className="text-[10px] text-slate-500 font-medium mt-0.5">
+                              {new Date(log.started_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}
+                              {log.ended_at ? ` — ${new Date(log.ended_at).toLocaleTimeString('en-GB', { timeStyle: 'short' })}` : ' — Now'}
+                            </div>
+                          </div>
+                          <div className="text-[10px] font-extrabold text-slate-700 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
+                            {durationStr}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {selectedAgent.timelineLogs.length === 0 && (
+                    <div className="text-center py-6 text-xs text-slate-400">No activity logs found.</div>
+                  )}
                 </div>
               </div>
 

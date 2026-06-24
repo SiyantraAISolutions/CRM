@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { formatDateTime } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
 import { toast } from 'sonner'
+import { Save } from 'lucide-react'
 
 interface HelpRequest {
   id: string;
@@ -22,12 +23,30 @@ interface HelpRequest {
   resolution_notes: string | null;
 }
 
+interface User {
+  id: string;
+  full_name: string;
+}
+
 export default function HelpRequestDetailClient({ request }: { request: HelpRequest }) {
   const router = useRouter()
   const supabase = createClient()
   const [status, setStatus] = useState(request.status)
+  const [assignedTo, setAssignedTo] = useState<string | null>(request.assigned_to)
+  const [resolutionNotes, setResolutionNotes] = useState(request.resolution_notes || '')
+  const [staff, setStaff] = useState<User[]>([])
+  const [saving, setSaving] = useState(false)
+  
   const brand = request.brand
   const shortId = String(request.id).slice(-6).toUpperCase()
+
+  useEffect(() => {
+    async function loadStaff() {
+      const { data } = await supabase.from('users').select('id, full_name').in('role', ['sales', 'admin', 'director'])
+      if (data) setStaff(data)
+    }
+    loadStaff()
+  }, [])
 
   const statusBadge = (s: string) => {
     const map: Record<string, 'orange' | 'blue' | 'green'> = { pending: 'orange', in_progress: 'blue', resolved: 'green' }
@@ -38,6 +57,21 @@ export default function HelpRequestDetailClient({ request }: { request: HelpRequ
     await supabase.from('help_requests').update({ status: newStatus }).eq('id', request.id)
     setStatus(newStatus)
     toast.success('Status updated')
+  }
+
+  async function saveDetails() {
+    setSaving(true)
+    const { error } = await supabase.from('help_requests').update({ 
+      assigned_to: assignedTo,
+      resolution_notes: resolutionNotes
+    }).eq('id', request.id)
+    
+    setSaving(false)
+    if (error) {
+      toast.error('Failed to save details')
+    } else {
+      toast.success('Help request updated')
+    }
   }
 
   return (
@@ -84,6 +118,42 @@ export default function HelpRequestDetailClient({ request }: { request: HelpRequ
             <p className="text-sm text-ink-gray-7 leading-relaxed whitespace-pre-wrap">{request.body}</p>
           </div>
         )}
+
+        {/* Assignment & Notes */}
+        <div className="panel space-y-4">
+          <div className="flex items-center justify-between border-b pb-2">
+            <div className="section-heading mb-0">Management</div>
+            <button onClick={saveDetails} disabled={saving} className="btn-solid gap-1 text-xs py-1.5 px-3">
+              <Save className="h-3.5 w-3.5" /> {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-ink-gray-5 mb-1.5">Assigned To</label>
+              <select 
+                className="form-input text-sm w-full md:w-1/2" 
+                value={assignedTo || ''}
+                onChange={e => setAssignedTo(e.target.value || null)}
+              >
+                <option value="">-- Unassigned --</option>
+                {staff.map(s => (
+                  <option key={s.id} value={s.id}>{s.full_name}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-xs font-semibold text-ink-gray-5 mb-1.5">Resolution Notes (Internal)</label>
+              <textarea 
+                className="form-input text-sm w-full min-h-[100px] resize-y"
+                placeholder="Add notes about how this was resolved..."
+                value={resolutionNotes}
+                onChange={e => setResolutionNotes(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
 
         {/* Actions */}
         <div className="panel">
