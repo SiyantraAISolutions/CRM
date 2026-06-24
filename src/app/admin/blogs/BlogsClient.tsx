@@ -106,7 +106,7 @@ export default function BlogsClient({ brands }: { brands: Brand[] }) {
         <DataTable
           data={blogs as any}
           columns={columns as any}
-          isLoading={loading}
+          loading={loading}
         />
       </div>
     </div>
