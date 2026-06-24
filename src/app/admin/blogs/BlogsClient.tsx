@@ -104,8 +104,8 @@ export default function BlogsClient({ brands }: { brands: Brand[] }) {
       </div>
       <div className="flex-1 overflow-auto p-4">
         <DataTable
-          data={blogs}
-          columns={columns}
+          data={blogs as any}
+          columns={columns as any}
           isLoading={loading}
         />
       </div>
