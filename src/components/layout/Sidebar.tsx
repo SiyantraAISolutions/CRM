@@ -93,6 +93,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
     { label: 'Payments', href: '/admin/payments', icon: CreditCard, roles: ['director'] },
     { label: 'Team', href: '/admin/team', icon: Users, roles: ['director'] },
     { label: 'Director Portal', href: '/admin/director', icon: PieChart, roles: ['director'] },
+    { label: 'Blogs', href: '/admin/blogs', icon: BookOpen },
     { label: 'Settings', href: '/admin/settings', icon: Settings, roles: ['director'] },
   ]
 
