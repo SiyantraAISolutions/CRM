@@ -34,6 +34,8 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
   const [servicesExpanded, setServicesExpanded] = useState(false)
   const [emailTemplates, setEmailTemplates] = useState<{ id: string; name: string }[]>([])
   const [templatesExpanded, setTemplatesExpanded] = useState(false)
+  const [ordersExpanded, setOrdersExpanded] = useState(false)
+  const [orderCounts, setOrderCounts] = useState<Record<string, number>>({})
 
   // Live badge counts via Supabase realtime
   useEffect(() => {
@@ -60,12 +62,22 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
   // Fetch Services & Templates Once
   useEffect(() => {
     async function fetchData() {
-      const [{ data: sData }, { data: tData }] = await Promise.all([
+      const [{ data: sData }, { data: tData }, { data: oData }] = await Promise.all([
         supabase.from('form_types').select('id, name, code').order('name'),
-        supabase.from('email_templates').select('id, name').order('name')
+        supabase.from('email_templates').select('id, name').order('name'),
+        supabase.from('orders').select('form_type_id').neq('status', 'abandoned').neq('status', 'dead')
       ])
       if (sData) setServices(sData)
       if (tData) setEmailTemplates(tData)
+      if (oData) {
+        const counts: Record<string, number> = {}
+        oData.forEach((o: any) => {
+          if (o.form_type_id) {
+            counts[o.form_type_id] = (counts[o.form_type_id] || 0) + 1
+          }
+        })
+        setOrderCounts(counts)
+      }
     }
     fetchData()
   }, [supabase])
@@ -93,7 +105,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
     { label: 'Payments', href: '/admin/payments', icon: CreditCard, roles: ['director'] },
     { label: 'Team', href: '/admin/team', icon: Users, roles: ['director'] },
     { label: 'Director Portal', href: '/admin/director', icon: PieChart, roles: ['director'] },
-    { label: 'Blogs', href: '/admin/blogs', icon: BookOpen },
+    { label: 'Blogs', href: '/admin/blogs', icon: BookOpen, roles: ['admin', 'director'] },
     { label: 'Settings', href: '/admin/settings', icon: Settings, roles: ['director'] },
   ]
 
@@ -148,6 +160,58 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
         {visibleItems.map((item) => {
           const Icon = item.icon
           const active = isActive(item.href)
+
+          if (item.label === 'Orders' && !collapsed) {
+            return (
+              <div key={item.href} className="space-y-0.5">
+                <button
+                  onClick={() => setOrdersExpanded(!ordersExpanded)}
+                  className={cn(
+                    'w-full relative flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition-all duration-200 group',
+                    active || ordersExpanded
+                      ? 'bg-gradient-to-r from-purple-50 to-violet-50 border border-purple-200 text-purple-900 shadow-sm'
+                      : 'text-slate-600 hover:bg-purple-50/60 hover:text-slate-900 border border-transparent'
+                  )}
+                >
+                  {active && (
+                    <span className="absolute left-0 top-1/4 h-1/2 w-1 rounded-r bg-purple-600 shadow-sm" />
+                  )}
+                  <div className="flex items-center gap-3">
+                    <Icon className={cn(
+                      "h-4 w-4 flex-shrink-0 transition-transform group-hover:scale-105",
+                      active || ordersExpanded ? "text-purple-600" : "text-slate-400 group-hover:text-slate-600"
+                    )} />
+                    <span className="flex-1 truncate tracking-wide">{item.label}</span>
+                  </div>
+                  <ChevronRight className={cn("h-4 w-4 transition-transform", ordersExpanded && "rotate-90", active || ordersExpanded ? "text-purple-600" : "text-slate-400")} />
+                </button>
+                {ordersExpanded && (
+                  <div className="pl-6 space-y-0.5 mt-1">
+                    <Link
+                      href="/admin/orders"
+                      className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-[11px] font-bold text-purple-600 hover:bg-purple-50 transition-colors"
+                    >
+                      <span>All Orders</span>
+                    </Link>
+                    {services.map(service => (
+                      <Link
+                        key={service.id}
+                        href={`/admin/orders?form_type_id=${service.id}`}
+                        className="flex items-center justify-between rounded-lg px-3 py-1.5 text-[11px] font-medium text-slate-500 hover:bg-purple-50 hover:text-purple-700 transition-colors"
+                      >
+                        <span className="truncate pr-2">{service.name}</span>
+                        {!!orderCounts[service.id] && (
+                          <span className="rounded-md bg-purple-100 border border-purple-200 px-1.5 py-0.5 text-[9px] font-extrabold text-purple-700 tabular-nums">
+                            {orderCounts[service.id]}
+                          </span>
+                        )}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          }
 
           return (
             <Link

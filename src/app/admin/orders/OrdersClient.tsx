@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import DataTable, { Column } from '@/components/ui/DataTable'
 import Badge from '@/components/ui/Badge'
 import { createClient } from '@/lib/supabase/client'
@@ -40,8 +40,9 @@ export default function OrdersClient({ brands, formTypes }: Props) {
   const [pageSize] = useState(10)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const searchParams = useSearchParams()
   const [brandFilter, setBrandFilter] = useState('all')
-  const [formTypeFilter, setFormTypeFilter] = useState('all')
+  const [formTypeFilter, setFormTypeFilter] = useState(searchParams.get('form_type_id') || 'all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [sortKey, setSortKey] = useState('created_at')
@@ -80,6 +81,17 @@ export default function OrdersClient({ brands, formTypes }: Props) {
   useEffect(() => {
     setPage(1)
   }, [activeBusinessId])
+
+  useEffect(() => {
+    const ft = searchParams.get('form_type_id')
+    if (ft) {
+      setFormTypeFilter(ft)
+      setPage(1)
+    } else {
+      setFormTypeFilter('all')
+      setPage(1)
+    }
+  }, [searchParams])
 
   useEffect(() => { fetchOrders() }, [fetchOrders])
 
