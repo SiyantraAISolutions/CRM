@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink, Calendar, RefreshCcw, Clock, ArrowRight, MessageSquare, AlertCircle, ShieldCheck, Search } from 'lucide-react'
+import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink, Calendar, RefreshCcw, Clock, ArrowRight, MessageSquare, AlertCircle, ShieldCheck, Search, Upload, Eye } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDateTime, timeAgo, cn } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -208,6 +208,107 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   // Monitor Tracking State
   const [monitorStage, setMonitorStage] = useState((order as any).monitor_stage || 'awaiting')
   const [submissionReqs, setSubmissionReqs] = useState((order as any).submission_requirements || { id_verified: false, form_signed: false, docs_uploaded: false })
+  const [documentUrl, setDocumentUrl] = useState(order.document_url || null)
+  const [uploadingDoc, setUploadingDoc] = useState(false)
+
+  const handleUploadDoc = async (file: File) => {
+    setUploadingDoc(true)
+    try {
+      const fileExt = file.name.split('.').pop()
+      const filePath = `${order.id}/${Math.random().toString(36).substring(2)}.${fileExt}`
+      
+      const { data, error: uploadError } = await supabase.storage
+        .from('order-documents')
+        .upload(filePath, file)
+
+      if (uploadError) {
+        toast.error('Failed to upload file to storage')
+        console.error(uploadError)
+        setUploadingDoc(false)
+        return
+      }
+
+      const newReqs = { ...submissionReqs, docs_uploaded: true }
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({
+          document_url: filePath,
+          submission_requirements: newReqs,
+          status: 'Documents Uploaded'
+        })
+        .eq('id', order.id)
+
+      if (updateError) {
+        toast.error('Failed to update order in database')
+        console.error(updateError)
+      } else {
+        setDocumentUrl(filePath)
+        setSubmissionReqs(newReqs)
+        toast.success('Document uploaded successfully!')
+        
+        // Log timeline note
+        await addTimelineNote(`Uploaded document: ${file.name} (marked "Supporting Docs Uploaded" as Complete)`, 'Upload')
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('An error occurred during upload')
+    } finally {
+      setUploadingDoc(false)
+    }
+  }
+
+  const handleDeleteDoc = async () => {
+    if (!documentUrl) return
+    if (!window.confirm('Are you sure you want to remove the uploaded document?')) return
+
+    try {
+      await supabase.storage.from('order-documents').remove([documentUrl])
+
+      const newReqs = { ...submissionReqs, docs_uploaded: false }
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          document_url: null,
+          submission_requirements: newReqs,
+          status: 'Incomplete'
+        })
+        .eq('id', order.id)
+
+      if (error) {
+        toast.error('Failed to remove document')
+        console.error(error)
+      } else {
+        setDocumentUrl(null)
+        setSubmissionReqs(newReqs)
+        toast.success('Document removed!')
+
+        // Log timeline note
+        await addTimelineNote(`Removed uploaded document (marked "Supporting Docs Uploaded" as Incomplete)`, 'Delete')
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('An error occurred while removing document')
+    }
+  }
+
+  const handleViewDoc = async () => {
+    if (!documentUrl) return
+    try {
+      const { data, error } = await supabase.storage
+        .from('order-documents')
+        .createSignedUrl(documentUrl, 3600)
+
+      if (error) {
+        toast.error('Failed to view file')
+        console.error(error)
+      } else if (data?.signedUrl) {
+        window.open(data.signedUrl, '_blank')
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('An error occurred while opening file')
+    }
+  }
 
   const [customerData, setCustomerData] = useState({
     first_name: order.first_name || '',
@@ -886,41 +987,24 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
               )}
             </div>
 
-            {/* Priority */}
-            <div className="panel">
-              <div className="section-heading">Priority</div>
-              <select
-                className="form-input w-48"
-                defaultValue={order.priority as string}
-                disabled={!isAdminOrDirector}
-                onChange={async e => {
-                  await supabase.from('orders').update({ priority: e.target.value }).eq('id', order.id)
-                  toast.success('Priority updated')
-                }}
-              >
-                <option value="standard">Standard</option>
-                <option value="fast_track">Fast Track</option>
-              </select>
-            </div>
-
-            {/* Submission Checklist & Monitor Stage (LRT only) */}
-            {brand?.code === 'LRT' && (
-              <div className="panel border-indigo-100 bg-indigo-50/30">
-                <div className="section-heading flex items-center gap-2 text-indigo-800">
-                  <CheckSquare className="h-4 w-4" /> Title Deed Submission Checklist
-                </div>
-                
-                <div className="grid gap-4 md:grid-cols-2 mt-4">
-                  {/* Requirements Toggles */}
-                  <div className="space-y-3">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Required Documents</label>
-                    <div className="space-y-2">
-                      {[
-                        { key: 'id_verified', label: 'ID Verification Completed' },
-                        { key: 'form_signed', label: 'Application Form Signed' },
-                        { key: 'docs_uploaded', label: 'Supporting Docs Uploaded' }
-                      ].map(req => (
-                        <label key={req.key} className="flex items-center gap-2 cursor-pointer bg-white p-2 rounded border shadow-sm hover:border-indigo-200 transition-colors">
+            {/* Submission Checklist & Monitor Stage */}
+            <div className="panel border-indigo-100 bg-indigo-50/30">
+              <div className="section-heading flex items-center gap-2 text-indigo-800">
+                <CheckSquare className="h-4 w-4" /> Title Deed Submission Checklist
+              </div>
+              
+              <div className="grid gap-4 md:grid-cols-2 mt-4">
+                {/* Requirements Toggles */}
+                <div className="space-y-3">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Required Documents</label>
+                  <div className="space-y-2">
+                    {[
+                      { key: 'id_verified', label: 'ID Verification Completed' },
+                      { key: 'form_signed', label: 'Application Form Signed' },
+                      { key: 'docs_uploaded', label: 'Supporting Docs Uploaded' }
+                    ].map(req => (
+                      <div key={req.key} className="flex flex-col gap-2 bg-white p-3 rounded border shadow-sm hover:border-indigo-200 transition-colors">
+                        <label className="flex items-center gap-2 cursor-pointer">
                           <input 
                             type="checkbox" 
                             disabled={!isAdminOrDirector}
@@ -932,13 +1016,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                               toast.success('Checklist updated')
                               
                               // Log timeline note
-                              const { data: note } = await supabase.from('order_notes').insert({
-                                order_id: order.id,
-                                author_id: (await supabase.auth.getUser()).data.user?.id,
-                                content: `Marked "${req.label}" as ${e.target.checked ? 'Complete' : 'Incomplete'}`,
-                                is_internal: true
-                              }).select('*, user:users(full_name, avatar_url)').single()
-                              if (note) setNotes(prev => [note as any, ...prev])
+                              await addTimelineNote(`Marked "${req.label}" as ${e.target.checked ? 'Complete' : 'Incomplete'}`, 'Checklist')
                             }}
                             className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
                           />
@@ -946,46 +1024,93 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                             {req.label}
                           </span>
                         </label>
-                      ))}
-                    </div>
-                  </div>
 
-                  {/* Stage Dropdown */}
-                  <div className="space-y-3">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Monitor Stage</label>
-                    <div className="bg-white p-3 rounded border shadow-sm">
-                      <select
-                        className="form-input w-full font-medium"
-                        value={monitorStage}
-                        disabled={!isAdminOrDirector}
-                        onChange={async e => {
-                          const newStage = e.target.value
-                          setMonitorStage(newStage)
-                          await supabase.from('orders').update({ monitor_stage: newStage }).eq('id', order.id)
-                          toast.success('Monitor stage updated')
-                          
-                          const { data: note } = await supabase.from('order_notes').insert({
-                            order_id: order.id,
-                            author_id: (await supabase.auth.getUser()).data.user?.id,
-                            content: `Moved application stage to: ${newStage.replace('_', ' ').toUpperCase()}`,
-                            is_internal: true
-                          }).select('*, user:users(full_name, avatar_url)').single()
-                          if (note) setNotes(prev => [note as any, ...prev])
-                        }}
-                      >
-                        <option value="awaiting">Awaiting Information</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="submitted">Submitted</option>
-                        <option value="completed">Completed</option>
-                      </select>
-                      <p className="text-xs text-slate-500 mt-2">
-                        Updating this stage will instantly move the application on the <a href="/admin/monitor" className="text-indigo-600 hover:underline">Title Deed Monitor</a> board.
-                      </p>
-                    </div>
+                        {/* Extra inline actions for docs_uploaded */}
+                        {req.key === 'docs_uploaded' && (
+                          <div className="pl-6 pt-1 border-t border-slate-100 mt-1 flex flex-col gap-2">
+                            {uploadingDoc ? (
+                              <div className="flex items-center gap-2 text-xs text-slate-500">
+                                <Loader2 className="h-3 w-3 animate-spin" /> Uploading file...
+                              </div>
+                            ) : documentUrl ? (
+                              <div className="flex items-center justify-between gap-2 bg-slate-50 p-1.5 rounded border border-slate-100 text-xs">
+                                <span className="truncate max-w-[150px] font-mono text-slate-600" title={documentUrl}>
+                                  {documentUrl.split('/').pop()}
+                                </span>
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  <button 
+                                    type="button" 
+                                    onClick={handleViewDoc}
+                                    className="p-1 hover:bg-slate-200 rounded text-slate-600 transition-colors"
+                                    title="View proof"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" />
+                                  </button>
+                                  {isAdminOrDirector && (
+                                    <button 
+                                      type="button" 
+                                      onClick={handleDeleteDoc}
+                                      className="p-1 hover:bg-red-50 rounded text-danger-red transition-colors"
+                                      title="Delete proof"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <div>
+                                <label className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer hover:underline">
+                                  <Upload className="h-3 w-3" />
+                                  <span>Upload Document</span>
+                                  <input 
+                                    type="file" 
+                                    disabled={!isAdminOrDirector}
+                                    className="hidden" 
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0]
+                                      if (file) handleUploadDoc(file)
+                                    }} 
+                                  />
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Stage Dropdown */}
+                <div className="space-y-3">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Monitor Stage</label>
+                  <div className="bg-white p-3 rounded border shadow-sm">
+                    <select
+                      className="form-input w-full font-medium"
+                      value={monitorStage}
+                      disabled={!isAdminOrDirector}
+                      onChange={async e => {
+                        const newStage = e.target.value
+                        setMonitorStage(newStage)
+                        await supabase.from('orders').update({ monitor_stage: newStage }).eq('id', order.id)
+                        toast.success('Monitor stage updated')
+                        
+                        await addTimelineNote(`Moved application stage to: ${newStage.replace('_', ' ').toUpperCase()}`, 'Stage Change')
+                      }}
+                    >
+                      <option value="awaiting">Awaiting Information</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="submitted">Submitted</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                    <p className="text-xs text-slate-500 mt-2">
+                      Updating this stage will instantly move the application on the <a href="/admin/monitor" className="text-indigo-600 hover:underline">Title Deed Monitor</a> board.
+                    </p>
                   </div>
                 </div>
               </div>
-            )}
+            </div>
 
             {/* Deferral Panel */}
             {isAdminOrDirector && (

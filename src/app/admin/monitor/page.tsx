@@ -12,11 +12,10 @@ export default async function MonitorPage() {
     redirect('/auth/login')
   }
 
-  // Fetch only LRT brand services for the Title Deed Monitor
+  // Fetch all brand services for the monitor
   const { data: formTypes } = await supabase
     .from('form_types')
-    .select('id, name, code, brand:brands!inner(code)')
-    .eq('brand.code', 'LRT')
+    .select('id, name, code, brand:brands!inner(code, name)')
 
   return <MonitorClient formTypes={formTypes || []} />
 }

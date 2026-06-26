@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Phone, PhoneOff, ChevronRight, CreditCard, Link2, Loader2, Check, Copy, Trash2 } from 'lucide-react'
+import { Phone, PhoneOff, ChevronRight, CreditCard, Link2, Loader2, Check, Copy, Trash2, Upload, Eye } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn, formatCurrency } from '@/lib/utils'
 import { calculateHMLRFee, getScaleForFormType } from '@/lib/hmlr-fees'
@@ -111,6 +111,7 @@ export default function CreateOrderClient({ brands }: Props) {
   const [wizardStep, setWizardStep] = useState(0)
   const [upsells, setUpsells] = useState<UpsellSelections>({ faster_docs: false, printed_copy: false, sms_updates: false })
   const [submitting, setSubmitting] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
   // Form data
   const [formData, setFormData] = useState<Record<string, string>>({})
@@ -261,6 +262,50 @@ export default function CreateOrderClient({ brands }: Props) {
       amount: Number(item.amount)
     }))
     await supabase.from('order_items').insert(lineItems)
+
+    if (selectedFile) {
+      try {
+        const fileExt = selectedFile.name.split('.').pop()
+        const filePath = `${newOrder.id}/${Math.random().toString(36).substring(2)}.${fileExt}`
+        
+        const { error: uploadError } = await supabase.storage
+          .from('order-documents')
+          .upload(filePath, selectedFile)
+
+        if (uploadError) {
+          toast.error('Failed to upload file to storage, but order was created')
+          console.error(uploadError)
+        } else {
+          const newReqs = { docs_uploaded: true, id_verified: false, form_signed: false }
+          const { error: updateError } = await supabase
+            .from('orders')
+            .update({
+              document_url: filePath,
+              submission_requirements: newReqs,
+              status: 'Documents Uploaded'
+            })
+            .eq('id', newOrder.id)
+
+          if (updateError) {
+            console.error(updateError)
+          } else {
+            newOrder.document_url = filePath
+            newOrder.submission_requirements = newReqs
+            newOrder.status = 'Documents Uploaded'
+            
+            await supabase.from('order_notes').insert({
+              order_id: newOrder.id,
+              user_id: user?.id,
+              message: `Uploaded document during creation: ${selectedFile.name} (marked "Supporting Docs Uploaded" as Complete)`,
+              category: 'Document Uploaded',
+            })
+          }
+        }
+      } catch (uploadErr) {
+        console.error(uploadErr)
+        toast.error('An error occurred during file upload')
+      }
+    }
 
     await supabase.from('order_notes').insert({
       order_id: newOrder.id,
@@ -468,6 +513,60 @@ export default function CreateOrderClient({ brands }: Props) {
               <div className="progress-fill" style={{ width: `${((wizardStep + 1) / 2) * 100}%` }} />
             </div>
           </div>
+
+          {wizardStep === 1 && (
+            <div className="space-y-5">
+              {/* File Upload Panel */}
+              <div className="panel">
+                <h3 className="section-heading flex items-center gap-2">
+                  <Upload className="h-5 w-5 text-indigo-600" /> Upload Supporting Documents / Files
+                </h3>
+                <p className="text-xs text-ink-gray-5 mb-4">
+                  Upload any supporting documents, IDs, or signed forms required for this order. Files will be uploaded to secure storage upon order creation.
+                </p>
+
+                {selectedFile ? (
+                  <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
+                        <Upload className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-ink-gray-9 truncate max-w-[280px]" title={selectedFile.name}>
+                          {selectedFile.name}
+                        </div>
+                        <div className="text-xs text-ink-gray-4">
+                          {(selectedFile.size / 1024).toFixed(1)} KB
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFile(null)}
+                      className="p-2 hover:bg-red-50 rounded-lg text-danger-red transition-colors flex-shrink-0"
+                      title="Remove file"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center border-2 border-dashed border-outline-gray-3 hover:border-indigo-500 rounded-xl p-8 cursor-pointer hover:bg-slate-50/50 transition-all text-center">
+                    <Upload className="h-8 w-8 text-ink-gray-4 mb-2" />
+                    <span className="text-sm font-semibold text-ink-gray-9">Click to select a file</span>
+                    <span className="text-xs text-ink-gray-4 mt-0.5">PDF, Images (Max 10MB)</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) setSelectedFile(file)
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
+          )}
 
           {wizardStep === 0 && (
             <div className="space-y-5">
@@ -769,6 +868,21 @@ export default function CreateOrderClient({ brands }: Props) {
               <span className="font-bold text-ink-gray-9">Total Fee</span>
               <span className="text-xl font-bold text-ink-gray-9">{formatCurrency(grandTotal)} <span className="text-xs font-normal text-ink-gray-4">Including VAT</span></span>
             </div>
+          </div>
+
+          {/* Uploaded Documents */}
+          <div className="panel">
+            <div className="section-heading">Supporting Documents</div>
+            {selectedFile ? (
+              <div className="flex items-center justify-between text-sm py-2">
+                <span className="text-ink-gray-5">Selected File</span>
+                <span className="font-medium text-ink-gray-9 truncate max-w-[300px]" title={selectedFile.name}>
+                  {selectedFile.name} (${(selectedFile.size / 1024).toFixed(1)} KB)
+                </span>
+              </div>
+            ) : (
+              <p className="text-sm text-ink-gray-4 py-2">No documents selected for upload. You can go back to Step 2 to upload if needed.</p>
+            )}
           </div>
 
           {/* T&Cs */}
