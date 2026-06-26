@@ -6,7 +6,7 @@ import { formatDate } from '@/lib/utils'
 import Avatar from '@/components/ui/Avatar'
 import Badge from '@/components/ui/Badge'
 import { toast } from 'sonner'
-import { UserPlus, Edit2, Check, X } from 'lucide-react'
+import { UserPlus, Edit2, Check, X, ExternalLink } from 'lucide-react'
 
 type UserRole = 'director' | 'sales' | 'admin'
 type Status = 'available' | 'break' | 'lunch' | 'toilet' | 'training'
@@ -14,6 +14,7 @@ type Status = 'available' | 'break' | 'lunch' | 'toilet' | 'training'
 interface TeamUser {
   id: string; full_name: string; email: string
   role: UserRole; current_status: Status; sales_target: number; created_at: string
+  calendly_link?: string
   user_businesses?: { business_id: string }[]
 }
 interface Business { id: string; name: string }
@@ -38,7 +39,7 @@ export default function TeamClient({ users: initialUsers, businesses }: { users:
 
   function startEdit(user: TeamUser) {
     setEditingId(user.id)
-    setEditForm({ role: user.role, sales_target: user.sales_target })
+    setEditForm({ role: user.role, sales_target: user.sales_target, calendly_link: user.calendly_link })
     setEditBusinesses(user.user_businesses?.map(ub => ub.business_id) ?? [])
   }
 
@@ -83,7 +84,7 @@ export default function TeamClient({ users: initialUsers, businesses }: { users:
             <thead>
               <tr>
                 <th>Member</th><th>Role</th><th>Assigned Businesses</th><th>Status</th>
-                <th>Sales Target</th><th>Joined</th><th>Actions</th>
+                <th>Calendly Link</th><th>Sales Target</th><th>Joined</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -152,6 +153,23 @@ export default function TeamClient({ users: initialUsers, businesses }: { users:
                   </td>
                   <td>
                     {editingId === user.id ? (
+                      <input type="url" className="form-input py-0.5 text-xs w-48"
+                        placeholder="https://calendly.com/username"
+                        value={editForm.calendly_link ?? ''}
+                        onChange={e => setEditForm(f => ({ ...f, calendly_link: e.target.value }))} />
+                    ) : (
+                      user.calendly_link ? (
+                        <a href={user.calendly_link} target="_blank" rel="noopener noreferrer" className="text-accent-blue hover:underline inline-flex items-center gap-1 text-xs">
+                          {user.calendly_link.replace('https://calendly.com/', '')}
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      ) : (
+                        <span className="text-xs text-ink-gray-4 italic">Not set</span>
+                      )
+                    )}
+                  </td>
+                  <td>
+                    {editingId === user.id ? (
                       <input type="number" className="form-input py-0.5 text-xs w-24"
                         value={editForm.sales_target}
                         onChange={e => setEditForm(f => ({ ...f, sales_target: Number(e.target.value) }))} />
@@ -193,28 +211,31 @@ export default function TeamClient({ users: initialUsers, businesses }: { users:
 }
 
 function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: () => void }) {
-  const supabase = createClient()
+  const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<UserRole>('sales')
   const [submitting, setSubmitting] = useState(false)
 
-  const [email2, setEmail2] = useState('')
-
   async function invite(e: React.FormEvent) {
     e.preventDefault()
+    if (!email.trim() || !fullName.trim()) return
     setSubmitting(true)
-    // Send invite via Supabase Auth
-    const { error } = await supabase.auth.admin?.inviteUserByEmail
-      ? { error: null } // Would use admin in server action
-      : await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: `${window.location.origin}/admin` } })
+    try {
+      const res = await fetch('/api/team/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, full_name: fullName, role }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to send invite')
 
-    if (!error) {
       toast.success(`Invite sent to ${email}`)
       onInvited()
-    } else {
-      toast.error('Failed to send invite')
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to send invite')
+    } finally {
+      setSubmitting(false)
     }
-    setSubmitting(false)
   }
 
   return (
@@ -225,6 +246,11 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
           <button onClick={onClose} className="btn-ghost p-1 text-lg">×</button>
         </div>
         <form onSubmit={invite} className="p-5 space-y-4">
+          <div>
+            <label className="form-label">Full Name *</label>
+            <input type="text" required className="form-input" value={fullName}
+              onChange={e => setFullName(e.target.value)} placeholder="John Doe" />
+          </div>
           <div>
             <label className="form-label">Email Address *</label>
             <input type="email" required className="form-input" value={email}

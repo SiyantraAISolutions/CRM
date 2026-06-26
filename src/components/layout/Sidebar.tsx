@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Ticket, ShoppingCart, Plus, HelpCircle,
   Archive, BookOpen, Shield, LogOut, ChevronLeft, ChevronRight,
   Bell, TrendingUp, CheckSquare, CreditCard, Users, Settings,
-  MessageSquare, Building2, Layers, Mail, Calendar, Activity, PieChart
+  MessageSquare, Building2, Layers, Mail, Calendar, Activity, PieChart, RotateCcw
 } from 'lucide-react'
 
 interface BadgeCounts {
@@ -17,6 +17,7 @@ interface BadgeCounts {
   helpRequests: number
   abandoned: number
   notifications: number
+  refunds: number
 }
 
 interface SidebarProps {
@@ -29,7 +30,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
   const router = useRouter()
   const supabase = createClient()
   const [collapsed, setCollapsed] = useState(false)
-  const [counts, setCounts] = useState(badgeCounts ?? { tickets: 0, helpRequests: 0, abandoned: 0, notifications: 0 })
+  const [counts, setCounts] = useState(badgeCounts ?? { tickets: 0, helpRequests: 0, abandoned: 0, notifications: 0, refunds: 0 })
   const [services, setServices] = useState<{ id: string; name: string; code: string }[]>([])
   const [servicesExpanded, setServicesExpanded] = useState(false)
   const [emailTemplates, setEmailTemplates] = useState<{ id: string; name: string }[]>([])
@@ -40,16 +41,18 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
   // Live badge counts via Supabase realtime
   useEffect(() => {
     async function refreshCounts() {
-      const [t, h, a] = await Promise.all([
+      const [t, h, a, r] = await Promise.all([
         supabase.from('tickets').select('id', { count: 'exact', head: true }).in('status', ['pending', 'awaiting_internal']),
         supabase.from('help_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
         supabase.from('orders').select('id', { count: 'exact', head: true }).eq('status', 'abandoned'),
+        supabase.from('refunds').select('id', { count: 'exact', head: true }).in('status', ['requested', 'under_review', 'approved']),
       ])
       setCounts(c => ({
         ...c,
         tickets: t.count ?? 0,
         helpRequests: h.count ?? 0,
         abandoned: a.count ?? 0,
+        refunds: r.count ?? 0,
       }))
     }
     refreshCounts()
@@ -67,7 +70,33 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
         supabase.from('email_templates').select('id, name').order('name'),
         supabase.from('orders').select('form_type_id').neq('status', 'abandoned').neq('status', 'dead')
       ])
-      if (sData) setServices(sData)
+      if (sData) {
+        const orderOfServices = [
+          { code: 'TITLE_REGISTER', name: 'Title Register' },
+          { code: 'TITLE_PLAN', name: 'Title Plan' },
+          { code: 'DEED_SEARCH', name: 'Deed Search', isStatic: true },
+          { code: 'MAP_SEARCH', name: 'Map / Land Search (no address)' },
+          { code: 'PROPERTY_OWNERSHIP', name: 'Property Ownership (Register + Plan)' },
+          { code: 'PROPERTY_ALERT', name: 'Property Alert Service', isStatic: true },
+          { code: 'TR1', name: 'Transfer of Equity' },
+          { code: 'AP1', name: 'Name Change on Deeds' },
+          { code: 'DJP', name: 'Death of a Joint Proprietor' },
+          { code: 'AS1', name: 'Transfer of Equity (Wills / Probate)' },
+          { code: 'SEV', name: 'Tenants in Common' },
+          { code: 'FR1', name: 'First Registration' }
+        ]
+
+        const mappedServices = orderOfServices.map(item => {
+          const dbItem = sData.find(s => s.code === item.code)
+          return {
+            id: dbItem?.id || item.code,
+            name: item.name,
+            code: item.code,
+            isStatic: !!item.isStatic
+          }
+        })
+        setServices(mappedServices)
+      }
       if (tData) setEmailTemplates(tData)
       if (oData) {
         const counts: Record<string, number> = {}
@@ -103,6 +132,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
     { label: 'Abandoned', href: '/admin/abandoned', icon: Archive, badge: counts.abandoned },
     { label: 'Tasks', href: '/admin/tasks', icon: CheckSquare },
     { label: 'Payments', href: '/admin/payments', icon: CreditCard, roles: ['director'] },
+    { label: 'Refunds', href: '/admin/refunds', icon: RotateCcw, badge: counts.refunds },
     { label: 'Team', href: '/admin/team', icon: Users, roles: ['director'] },
     { label: 'Director Portal', href: '/admin/director', icon: PieChart, roles: ['director'] },
     { label: 'Blogs', href: '/admin/blogs', icon: BookOpen, roles: ['admin', 'director'] },
@@ -196,11 +226,11 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
                     {services.map(service => (
                       <Link
                         key={service.id}
-                        href={`/admin/orders?form_type_id=${service.id}`}
+                        href={(service as any).isStatic ? `/admin/orders?search=${encodeURIComponent(service.name)}` : `/admin/orders?form_type_id=${service.id}`}
                         className="flex items-center justify-between rounded-lg px-3 py-1.5 text-[11px] font-medium text-slate-500 hover:bg-purple-50 hover:text-purple-700 transition-colors"
                       >
                         <span className="truncate pr-2">{service.name}</span>
-                        {!!orderCounts[service.id] && (
+                        {!(service as any).isStatic && !!orderCounts[service.id] && (
                           <span className="rounded-md bg-purple-100 border border-purple-200 px-1.5 py-0.5 text-[9px] font-extrabold text-purple-700 tabular-nums">
                             {orderCounts[service.id]}
                           </span>
@@ -267,7 +297,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
                 {services.map(service => (
                   <Link
                     key={service.id}
-                    href={`/admin/create-order?form_type_id=${service.id}`}
+                    href={(service as any).isStatic ? '/admin/create-order' : `/admin/create-order?form_type_id=${service.id}`}
                     className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-[11px] font-medium text-slate-500 hover:bg-purple-50 hover:text-purple-700 transition-colors truncate"
                   >
                     <BookOpen className="h-3 w-3 flex-shrink-0 text-slate-400" />

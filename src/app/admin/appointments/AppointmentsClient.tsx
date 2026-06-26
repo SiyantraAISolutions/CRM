@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { format, startOfWeek, endOfWeek, addDays, subDays, isSameMonth, isSameDay, startOfMonth, endOfMonth, parseISO, isToday } from 'date-fns'
+import { format, startOfWeek, endOfWeek, addDays, subDays, isSameMonth, isSameDay, startOfMonth, endOfMonth, parseISO, isToday, addMonths, subMonths } from 'date-fns'
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Plus, X, Search } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
@@ -41,6 +41,10 @@ export default function AppointmentsClient() {
   const [appointmentDate, setAppointmentDate] = useState('')
   const [appointmentTime, setAppointmentTime] = useState('')
   const [saving, setSaving] = useState(false)
+  const [solicitors, setSolicitors] = useState<any[]>([])
+  const [selectedSolicitorId, setSelectedSolicitorId] = useState<string>('')
+  
+  const selectedSolicitor = solicitors.find(s => s.id === selectedSolicitorId)
 
   const fetchAppointments = async () => {
     setLoading(true)
@@ -75,15 +79,29 @@ export default function AppointmentsClient() {
     fetchAppointments()
   }, [currentDate, supabase])
 
-  // Fetch recent orders for the booking modal
+  // Fetch recent orders and solicitors for the booking modal
   useEffect(() => {
-    if (showModal && orders.length === 0) {
-      supabase.from('orders').select('id, first_name, last_name, email').order('created_at', { ascending: false }).limit(200)
+    if (showModal) {
+      if (orders.length === 0) {
+        supabase.from('orders').select('id, first_name, last_name, email').order('created_at', { ascending: false }).limit(200)
+          .then(({ data }) => {
+            if (data) setOrders(data)
+          })
+      }
+      supabase.from('users').select('id, full_name, email, role, calendly_link').order('full_name')
         .then(({ data }) => {
-          if (data) setOrders(data)
+          if (data) setSolicitors(data)
         })
     }
   }, [showModal, supabase])
+
+  const closeModal = () => {
+    setShowModal(false)
+    setSelectedOrder(null)
+    setSelectedSolicitorId('')
+    setAppointmentDate('')
+    setAppointmentTime('')
+  }
 
   const handleBook = async () => {
     if (!selectedOrder || !appointmentDate || !appointmentTime) {
@@ -94,6 +112,7 @@ export default function AppointmentsClient() {
     const scheduledAt = new Date(`${appointmentDate}T${appointmentTime}:00`).toISOString()
     const { error } = await supabase.from('appointments').insert({
       order_id: selectedOrder,
+      solicitor_id: selectedSolicitorId || null,
       scheduled_at: scheduledAt,
       status: 'scheduled'
     })
@@ -103,16 +122,13 @@ export default function AppointmentsClient() {
       toast.error('Failed to book appointment')
     } else {
       toast.success('Appointment booked successfully!')
-      setShowModal(false)
-      setSelectedOrder(null)
-      setAppointmentDate('')
-      setAppointmentTime('')
+      closeModal()
       fetchAppointments()
     }
   }
 
-  const nextMonth = () => setCurrentDate(addDays(currentDate, 30))
-  const prevMonth = () => setCurrentDate(subDays(currentDate, 30))
+  const nextMonth = () => setCurrentDate(addMonths(currentDate, 1))
+  const prevMonth = () => setCurrentDate(subMonths(currentDate, 1))
   
   // Generate calendar grid
   const monthStart = startOfMonth(currentDate)
@@ -256,14 +272,17 @@ export default function AppointmentsClient() {
       {/* Booking Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
-            <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+          <div className={cn(
+            "bg-white rounded-2xl shadow-xl w-full overflow-hidden transition-all duration-300 animate-in zoom-in-95 flex flex-col max-h-[90vh]",
+            selectedSolicitor?.calendly_link ? "max-w-2xl" : "max-w-md"
+          )}>
+            <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 text-slate-800">
               <h2 className="font-bold text-slate-800">Book ID Verification</h2>
-              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600">
+              <button onClick={closeModal} className="text-slate-400 hover:text-slate-600">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="p-5 space-y-4">
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Select Customer / Order</label>
                 {!selectedOrder ? (
@@ -282,7 +301,7 @@ export default function AppointmentsClient() {
                           <div 
                             key={o.id} 
                             onClick={() => setSelectedOrder(o.id)}
-                            className="px-3 py-2 hover:bg-purple-50 cursor-pointer border-b border-slate-50 last:border-0"
+                            className="px-3 py-2 hover:bg-purple-50 cursor-pointer border-b border-slate-50 last:border-0 text-slate-800"
                           >
                             <div className="text-sm font-medium text-slate-800">{o.first_name} {o.last_name}</div>
                             <div className="text-xs text-slate-500 truncate">{o.email}</div>
@@ -304,23 +323,104 @@ export default function AppointmentsClient() {
                   </div>
                 )}
               </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Date</label>
-                  <input type="date" className="form-input w-full" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Time</label>
-                  <input type="time" className="form-input w-full" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} />
-                </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Select Solicitor</label>
+                <select 
+                  className="form-input w-full text-slate-800"
+                  value={selectedSolicitorId}
+                  onChange={e => setSelectedSolicitorId(e.target.value)}
+                >
+                  <option value="">-- Select Solicitor (Manual Date/Time Only) --</option>
+                  {solicitors.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.full_name} ({s.role.toUpperCase()}){s.calendly_link ? ' - Calendly Linked' : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
+
+              {selectedSolicitor?.calendly_link && (
+                <div className="space-y-3">
+                  <div className="border border-purple-100 rounded-xl p-3 bg-purple-50/30">
+                    <div className="text-xs font-bold text-purple-900 mb-2 flex items-center justify-between">
+                      <span>Calendly Availability for {selectedSolicitor.full_name}</span>
+                      <a href={selectedSolicitor.calendly_link} target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline inline-flex items-center gap-0.5">
+                        Open in new tab ↗
+                      </a>
+                    </div>
+                    <div className="bg-white border border-purple-100 rounded-lg overflow-hidden h-[360px]">
+                      <iframe
+                        src={selectedSolicitor.calendly_link}
+                        width="100%"
+                        height="100%"
+                        className="border-0 w-full h-full"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-3 text-xs">
+                    <p className="font-semibold mb-1">📅 Booking via Calendly:</p>
+                    <p className="text-slate-600 leading-relaxed">Once you schedule using the Calendly widget above, the appointment is automatically synced. You do not need to fill out the manual date/time inputs below. Just click <strong>"Done (Booked via Calendly)"</strong>.</p>
+                  </div>
+                </div>
+              )}
+              
+              {selectedSolicitor?.calendly_link ? (
+                <div className="border-t border-dashed border-slate-200 pt-3 mt-3">
+                  <div className="text-[11px] font-bold text-slate-500 mb-2 uppercase tracking-wider">Or schedule manually (override):</div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Date</label>
+                      <input type="date" className="form-input w-full text-slate-800" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Time</label>
+                      <input type="time" className="form-input w-full text-slate-800" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Date</label>
+                    <input type="date" className="form-input w-full text-slate-800" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Time</label>
+                    <input type="time" className="form-input w-full text-slate-800" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} />
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
-              <button onClick={() => setShowModal(false)} className="btn-outline">Cancel</button>
-              <button onClick={handleBook} disabled={saving || !selectedOrder || !appointmentDate || !appointmentTime} className="btn-primary">
-                {saving ? 'Booking...' : 'Confirm Booking'}
-              </button>
+            <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2 shrink-0">
+              <button onClick={closeModal} className="btn-outline">Cancel</button>
+              {selectedSolicitor?.calendly_link ? (
+                <>
+                  <button 
+                    onClick={() => {
+                      toast.success('Done! The booking will sync automatically via webhook in a few seconds.')
+                      closeModal()
+                      setTimeout(() => {
+                        fetchAppointments()
+                      }, 2000)
+                    }} 
+                    disabled={!selectedOrder} 
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Done (Booked via Calendly)
+                  </button>
+                  {appointmentDate && appointmentTime && (
+                    <button onClick={handleBook} disabled={saving || !selectedOrder} className="btn-primary">
+                      {saving ? 'Booking...' : 'Confirm Manual Booking'}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <button onClick={handleBook} disabled={saving || !selectedOrder || !appointmentDate || !appointmentTime} className="btn-primary">
+                  {saving ? 'Booking...' : 'Confirm Booking'}
+                </button>
+              )}
             </div>
           </div>
         </div>

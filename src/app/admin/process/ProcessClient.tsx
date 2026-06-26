@@ -56,7 +56,37 @@ export default function ProcessClient({ formTypes }: Props) {
 
   const updateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
     const { data: { user } } = await supabase.auth.getUser()
-    const updatePayload: any = { status: newStatus }
+
+    if (newStatus === 'deferred' as any) {
+      const daysStr = window.prompt("Enter number of days to defer this application:", "3")
+      if (daysStr === null) return // user cancelled
+      const days = parseInt(daysStr, 10)
+      if (isNaN(days) || days <= 0) {
+        toast.error("Invalid number of days")
+        return
+      }
+      const reason = window.prompt("Enter reason for deferral:", "Awaiting documents") || "Deferred via workload board"
+      
+      const deferDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
+      const { error } = await supabase.from('orders').update({
+        deferred_until: deferDate,
+        deferred_reason: reason
+      }).eq('id', orderId)
+      
+      if (error) {
+        toast.error('Failed to defer order')
+      } else {
+        toast.success(`Order deferred for ${days} days`)
+        fetchOrders()
+      }
+      return
+    }
+
+    const updatePayload: any = { 
+      status: newStatus,
+      deferred_until: null,
+      deferred_reason: null
+    }
     if (newStatus === 'completed' && user) {
       updatePayload.completed_by = user.id
     }
@@ -242,7 +272,7 @@ export default function ProcessClient({ formTypes }: Props) {
 
                       {/* Manual Move Buttons (Fallback for DND) */}
                       <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
-                        {col.id !== 'paid' && col.id !== 'deferred' && (
+                        {col.id !== 'paid' && (
                           <button 
                             onClick={() => updateOrderStatus(order.id, 'paid')}
                             className="text-[10px] font-bold text-slate-400 hover:text-amber-600"
@@ -250,7 +280,7 @@ export default function ProcessClient({ formTypes }: Props) {
                             ← In Process
                           </button>
                         )}
-                        {col.id !== 'in_progress' && col.id !== 'deferred' && (
+                        {col.id !== 'in_progress' && (
                           <button 
                             onClick={() => updateOrderStatus(order.id, 'in_progress')}
                             className="text-[10px] font-bold text-slate-400 hover:text-blue-600"
@@ -258,12 +288,20 @@ export default function ProcessClient({ formTypes }: Props) {
                             {col.id === 'paid' ? 'Start Progress →' : '← In Progress'}
                           </button>
                         )}
-                        {col.id !== 'completed' && col.id !== 'deferred' && (
+                        {col.id !== 'completed' && (
                           <button 
                             onClick={() => updateOrderStatus(order.id, 'completed')}
                             className="text-[10px] font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded transition-colors"
                           >
                             Complete →
+                          </button>
+                        )}
+                        {col.id !== 'deferred' && (
+                          <button 
+                            onClick={() => updateOrderStatus(order.id, 'deferred' as any)}
+                            className="text-[10px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded transition-colors"
+                          >
+                            Defer...
                           </button>
                         )}
                       </div>

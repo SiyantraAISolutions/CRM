@@ -16,7 +16,7 @@ export default async function TeamPage() {
   const { data: users } = await supabase
     .from('users')
     .select(`
-      id, full_name, email, role, current_status, sales_target, created_at,
+      id, full_name, email, role, current_status, sales_target, created_at, calendly_link,
       user_businesses(business_id)
     `)
     .order('full_name')

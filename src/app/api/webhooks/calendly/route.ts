@@ -83,6 +83,8 @@ export async function POST(req: NextRequest) {
 
     let eventName = 'Scheduled Call'
     let startTime = ''
+    let startRaw = ''
+    let eventMemberships: any[] = []
 
     // Fetch scheduled event details using Calendly API
     try {
@@ -98,8 +100,10 @@ export async function POST(req: NextRequest) {
         if (response.ok) {
           const resData = await response.json()
           eventName = resData.resource.name || eventName
-          startTime = resData.resource.start_time
-            ? new Date(resData.resource.start_time).toLocaleString('en-GB', { timeZone: 'Europe/London' }) + ' (UK Time)'
+          eventMemberships = resData.resource.event_memberships || []
+          startRaw = resData.resource.start_time || ''
+          startTime = startRaw
+            ? new Date(startRaw).toLocaleString('en-GB', { timeZone: 'Europe/London' }) + ' (UK Time)'
             : ''
         } else {
           console.error('Failed to fetch scheduled event details:', await response.text())
@@ -107,6 +111,24 @@ export async function POST(req: NextRequest) {
       }
     } catch (apiErr) {
       console.error('Error calling Calendly API for event details:', apiErr)
+    }
+
+    // Try to find matching solicitor in users table by host email
+    let solicitorId = null
+    let solicitorName = ''
+    if (eventMemberships && eventMemberships.length > 0) {
+      const hostEmail = eventMemberships[0].user_email
+      if (hostEmail) {
+        const { data: sol } = await supabase
+          .from('users')
+          .select('id, full_name')
+          .eq('email', hostEmail)
+          .maybeSingle()
+        if (sol) {
+          solicitorId = sol.id
+          solicitorName = sol.full_name
+        }
+      }
     }
 
     // Compile questions and answers
@@ -120,82 +142,151 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Retrieve default business mapping
-    const { data: defaultBizSetting } = await supabase
-      .from('settings')
-      .select('value')
-      .eq('key', 'calendly_default_business_id')
-      .single()
+    // 1. Check if there is an active order with this customer email
+    const { data: order } = await supabase
+      .from('orders')
+      .select('id, business_id')
+      .eq('email', inviteeEmail)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-    let businessId = defaultBizSetting?.value
+    if (order) {
+      // Create a linked appointment in the database
+      const { error: apptErr } = await supabase.from('appointments').insert({
+        order_id: order.id,
+        solicitor_id: solicitorId,
+        scheduled_at: startRaw || new Date().toISOString(),
+        status: 'scheduled',
+        notes: `Booked via Calendly: ${eventName}`
+      })
 
-    if (!businessId) {
-      // Fallback: search for business with domain 'landregistrytransfers.com'
-      const { data: biz } = await supabase
-        .from('businesses')
-        .select('id')
-        .eq('domain', 'landregistrytransfers.com')
+      if (apptErr) {
+        console.error('Error inserting appointment from Calendly:', apptErr)
+        return NextResponse.json({ error: 'Database save error (appointment)' }, { status: 500 })
+      }
+
+      // Add timeline note to the order
+      await supabase.from('order_notes').insert({
+        order_id: order.id,
+        message: `📅 ID Verification Booked via Calendly: Scheduled for ${startTime || startRaw}${solicitorName ? ' with ' + solicitorName : ''}`,
+        category: 'Appointment'
+      })
+
+      console.log(`Successfully recorded Calendly appointment for order ${order.id}`)
+    } else {
+      // 2. If no active order, fallback to Enquiry creation
+      // Retrieve default business mapping
+      const { data: defaultBizSetting } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'calendly_default_business_id')
         .single()
-      businessId = biz?.id
+
+      let businessId = defaultBizSetting?.value
+
+      if (!businessId) {
+        const { data: biz } = await supabase
+          .from('businesses')
+          .select('id')
+          .eq('domain', 'landregistrytransfers.com')
+          .single()
+        businessId = biz?.id
+      }
+
+      if (!businessId) {
+        const { data: bizs } = await supabase
+          .from('businesses')
+          .select('id')
+          .limit(1)
+        businessId = bizs?.[0]?.id
+      }
+
+      const { error: insertErr } = await supabase.from('enquiries').insert({
+        customer_name: inviteeName,
+        email: inviteeEmail,
+        phone: inviteePhone,
+        message: `Booked: ${eventName} ${startTime ? 'on ' + startTime : ''}`,
+        source: 'Calendly',
+        pipeline_stage: 'new',
+        business_id: businessId,
+        notes: notes,
+      })
+
+      if (insertErr) {
+        console.error('Error inserting enquiry from Calendly:', insertErr)
+        return NextResponse.json({ error: 'Database save error (enquiry)' }, { status: 500 })
+      }
+
+      console.log(`Successfully recorded Calendly enquiry for ${inviteeEmail}`)
     }
-
-    if (!businessId) {
-      // Second fallback: get first business
-      const { data: bizs } = await supabase
-        .from('businesses')
-        .select('id')
-        .limit(1)
-      businessId = bizs?.[0]?.id
-    }
-
-    // Insert enquiry
-    const { error: insertErr } = await supabase.from('enquiries').insert({
-      customer_name: inviteeName,
-      email: inviteeEmail,
-      phone: inviteePhone,
-      message: `Booked: ${eventName} ${startTime ? 'on ' + startTime : ''}`,
-      source: 'Calendly',
-      pipeline_stage: 'new',
-      business_id: businessId,
-      notes: notes,
-    })
-
-    if (insertErr) {
-      console.error('Error inserting enquiry from Calendly:', insertErr)
-      return NextResponse.json({ error: 'Database save error' }, { status: 500 })
-    }
-
-    console.log(`Successfully recorded Calendly enquiry for ${inviteeEmail}`)
   }
 
   if (event === 'invitee.canceled') {
     const inviteeEmail = payload.email
+    const cancelReason = payload.cancellation?.reason || 'No reason provided'
 
-    // Find latest enquiry with this email
-    const { data: enqs } = await supabase
-      .from('enquiries')
+    // 1. Check if there are orders for this email
+    const { data: matchedOrders } = await supabase
+      .from('orders')
       .select('id')
       .eq('email', inviteeEmail)
-      .order('created_at', { ascending: false })
-      .limit(1)
+    
+    const orderIds = (matchedOrders || []).map(o => o.id)
 
-    if (enqs && enqs.length > 0) {
-      const enquiryId = enqs[0].id
-      const cancelReason = payload.cancellation?.reason || 'No reason provided'
-      
-      // Add enquiry note about cancellation
-      const { error: noteErr } = await supabase.from('enquiry_notes').insert({
-        enquiry_id: enquiryId,
-        message: `❌ Calendly call cancelled. Reason: ${cancelReason}`,
-      })
+    let appointmentCancelled = false
 
-      if (noteErr) {
-        console.error('Error inserting cancellation note:', noteErr)
-      } else {
-        console.log(`Recorded cancellation note for enquiry ID ${enquiryId}`)
+    if (orderIds.length > 0) {
+      // Find latest scheduled appointment for these orders
+      const { data: appts } = await supabase
+        .from('appointments')
+        .select('id, order_id')
+        .in('order_id', orderIds)
+        .eq('status', 'scheduled')
+        .order('scheduled_at', { ascending: false })
+        .limit(1)
+
+      if (appts && appts.length > 0) {
+        const appt = appts[0]
+        // Mark appointment as cancelled
+        await supabase.from('appointments').update({ status: 'cancelled' }).eq('id', appt.id)
+        // Add timeline note to the order
+        await supabase.from('order_notes').insert({
+          order_id: appt.order_id,
+          message: `❌ Calendly call cancelled. Reason: ${cancelReason}`,
+          category: 'Appointment'
+        })
+        console.log(`Cancelled appointment ID ${appt.id} for order ${appt.order_id}`)
+        appointmentCancelled = true
       }
-    } else {
-      console.log(`No active enquiry found to cancel for email ${inviteeEmail}`)
+    }
+
+    if (!appointmentCancelled) {
+      // Fallback: Find latest enquiry with this email and add cancel note
+      const { data: enqs } = await supabase
+        .from('enquiries')
+        .select('id')
+        .eq('email', inviteeEmail)
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (enqs && enqs.length > 0) {
+        const enquiryId = enqs[0].id
+        
+        // Add enquiry note about cancellation
+        const { error: noteErr } = await supabase.from('enquiry_notes').insert({
+          enquiry_id: enquiryId,
+          message: `❌ Calendly call cancelled. Reason: ${cancelReason}`,
+        })
+
+        if (noteErr) {
+          console.error('Error inserting cancellation note:', noteErr)
+        } else {
+          console.log(`Recorded cancellation note for enquiry ID ${enquiryId}`)
+        }
+      } else {
+        console.log(`No active enquiry or appointment found to cancel for email ${inviteeEmail}`)
+      }
     }
   }
 

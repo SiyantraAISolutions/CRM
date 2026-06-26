@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Phone, PhoneOff, ChevronRight, CreditCard, Link2, Loader2, Check, Copy } from 'lucide-react'
+import { Phone, PhoneOff, ChevronRight, CreditCard, Link2, Loader2, Check, Copy, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn, formatCurrency } from '@/lib/utils'
 import { calculateHMLRFee, getScaleForFormType } from '@/lib/hmlr-fees'
@@ -11,6 +11,74 @@ import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
+
+const ITEM_TYPES = [
+  'Deed Search [Application]', 'Deed Search [Extra]', 'Property Alert',
+  'Application Pack', 'Conveyancing Pack', 'Document Fee',
+  'Search & Processing Fee', 'HMLR Fee', 'Fast Track Fee',
+  'Printed Copy Fee', 'SMS Updates Fee',
+  'ADV1 Adverse Possession',
+  'AP1 Name Change',
+  'AS1 Assent of Whole',
+  'COG1 Changing Register Details',
+  'COG1 Changing Registered Owners Address',
+  'DJP Death of Joint Proprietor',
+  'FR1 First Registration',
+  'Map Search / Deed Search',
+  'Property Ownership',
+  'RX3 Remove Restriction',
+  'SEV Joint Tenants to Tenants in Common',
+  'Title Plan',
+  'Title Register',
+  'TP1 Transfer of Part',
+  'TR1 Add/Remove Proprietor',
+  'Deed Search',
+  'Map / Land Search (no address)',
+  'Property Ownership (Register + Plan)',
+  'Property Alert Service',
+  'Transfer of Equity',
+  'Name Change on Deeds',
+  'Death of a Joint Proprietor',
+  'Transfer of Equity (Wills / Probate)',
+  'Tenants in Common',
+  'First Registration',
+  'Additional Services',
+]
+
+const DEFAULT_PRICES: Record<string, number> = {
+  'Title Register': 36.00,
+  'Title Plan': 36.00,
+  'Deed Search': 45.00,
+  'Map / Land Search (no address)': 41.00,
+  'Property Ownership (Register + Plan)': 60.00,
+  'Property Alert Service': 45.00,
+  'Transfer of Equity': 450.00,
+  'Name Change on Deeds': 150.00,
+  'Death of a Joint Proprietor': 400.00,
+  'Transfer of Equity (Wills / Probate)': 450.00,
+  'Tenants in Common': 350.00,
+  'First Registration': 600.00,
+  'Fast Track Fee': 10.00,
+  'Printed Copy Fee': 7.50,
+  'SMS Updates Fee': 4.00,
+  'Deed Search [Application]': 45.00,
+  'Deed Search [Extra]': 45.00,
+  'Property Alert': 45.00,
+  'ADV1 Adverse Possession': 450.00,
+  'AP1 Name Change': 150.00,
+  'AS1 Assent of Whole': 450.00,
+  'COG1 Changing Register Details': 150.00,
+  'COG1 Changing Registered Owners Address': 150.00,
+  'DJP Death of Joint Proprietor': 400.00,
+  'FR1 First Registration': 600.00,
+  'Map Search / Deed Search': 41.00,
+  'Property Ownership': 60.00,
+  'RX3 Remove Restriction': 350.00,
+  'SEV Joint Tenants to Tenants in Common': 350.00,
+  'TP1 Transfer of Part': 450.00,
+  'TR1 Add/Remove Proprietor': 450.00,
+}
+
 
 type WizardStep = 'landing' | 'form-type' | 'wizard' | 'upsells' | 'review'
 
@@ -56,14 +124,52 @@ export default function CreateOrderClient({ brands }: Props) {
   const [copiedLink, setCopiedLink] = useState(false)
   const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null)
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null)
+  const [orderItems, setOrderItems] = useState<{ id: string; item_type: string; amount: number }[]>([])
 
   useEffect(() => {
     if (!selectedBrand) return
     supabase
       .from('form_types')
       .select('id, code, name, brand_ids, base_price, fee_scale, tc_template, business_id')
-      .contains('brand_ids', [selectedBrand.id])
-      .then(({ data }) => setFormTypes(data ?? []))
+      .order('name')
+      .then(({ data }) => {
+        if (!data) {
+          setFormTypes([])
+          return
+        }
+
+        const orderOfServices = [
+          { code: 'TITLE_REGISTER', name: 'Title Register' },
+          { code: 'TITLE_PLAN', name: 'Title Plan' },
+          { code: 'DEED_SEARCH', name: 'Deed Search', isStatic: true, fallbackCode: 'MAP_SEARCH' },
+          { code: 'MAP_SEARCH', name: 'Map / Land Search (no address)' },
+          { code: 'PROPERTY_OWNERSHIP', name: 'Property Ownership (Register + Plan)' },
+          { code: 'PROPERTY_ALERT', name: 'Property Alert Service', isStatic: true, fallbackCode: 'PROPERTY_OWNERSHIP' },
+          { code: 'TR1', name: 'Transfer of Equity' },
+          { code: 'AP1', name: 'Name Change on Deeds' },
+          { code: 'DJP', name: 'Death of a Joint Proprietor' },
+          { code: 'AS1', name: 'Transfer of Equity (Wills / Probate)' },
+          { code: 'SEV', name: 'Tenants in Common' },
+          { code: 'FR1', name: 'First Registration' }
+        ]
+
+        const mappedServices: FormType[] = orderOfServices.map(item => {
+          const targetCode = item.isStatic ? item.fallbackCode : item.code
+          const dbItem = data.find(s => s.code === targetCode)
+          return {
+            id: dbItem?.id || '',
+            code: item.code,
+            name: item.name,
+            brand_ids: dbItem?.brand_ids || [],
+            base_price: dbItem?.base_price || 0,
+            fee_scale: dbItem?.fee_scale,
+            tc_template: dbItem?.tc_template,
+            business_id: dbItem?.business_id
+          }
+        }).filter(item => item.id !== '')
+
+        setFormTypes(mappedServices)
+      })
   }, [selectedBrand, supabase])
 
   useEffect(() => {
@@ -89,13 +195,18 @@ export default function CreateOrderClient({ brands }: Props) {
     RX3: 350.00, // Removal of a Restriction
     ADV1: 450.00, // Adverse Possession
     AS1: 450.00, // Assent of Whole / Wills & Probate
+    DEED_SEARCH: 45.00,
+    PROPERTY_ALERT: 45.00,
   }
 
   const basePrice = selectedFormType ? (SERVICE_RETAIL_VALS[selectedFormType.code] ?? selectedFormType.base_price) : 0
   const upsellTotal = (upsells.faster_docs ? UPSELL_PRICES.faster_docs : 0)
     + (upsells.printed_copy ? UPSELL_PRICES.printed_copy : 0)
     + (upsells.sms_updates ? UPSELL_PRICES.sms_updates : 0)
-  const grandTotal = basePrice + upsellTotal + hmlrFee
+  const staticGrandTotal = basePrice + upsellTotal + hmlrFee
+  const grandTotal = orderItems.length > 0 
+    ? orderItems.reduce((sum, item) => sum + Number(item.amount), 0)
+    : staticGrandTotal
 
   function setField(key: string, value: string) {
     setFormData(prev => ({ ...prev, [key]: value }))
@@ -144,13 +255,11 @@ export default function CreateOrderClient({ brands }: Props) {
       return null
     }
 
-    const lineItems = [
-      { order_id: newOrder.id, item_type: 'Document Fee', amount: basePrice },
-      ...(hmlrFee > 0 ? [{ order_id: newOrder.id, item_type: 'HMLR Fee', amount: hmlrFee }] : []),
-      ...(upsells.faster_docs ? [{ order_id: newOrder.id, item_type: 'Fast Track Fee', amount: UPSELL_PRICES.faster_docs }] : []),
-      ...(upsells.printed_copy ? [{ order_id: newOrder.id, item_type: 'Printed Copy Fee', amount: UPSELL_PRICES.printed_copy }] : []),
-      ...(upsells.sms_updates ? [{ order_id: newOrder.id, item_type: 'SMS Updates Fee', amount: UPSELL_PRICES.sms_updates }] : []),
-    ]
+    const lineItems = orderItems.map(item => ({
+      order_id: newOrder.id,
+      item_type: item.item_type,
+      amount: Number(item.amount)
+    }))
     await supabase.from('order_items').insert(lineItems)
 
     await supabase.from('order_notes').insert({
@@ -304,7 +413,7 @@ export default function CreateOrderClient({ brands }: Props) {
 
           <div className="space-y-2">
             {formTypes.map(ft => (
-              <div key={ft.id} className="flex items-center justify-between rounded-lg border bg-white p-4 hover:bg-surface-gray-1">
+              <div key={ft.code} className="flex items-center justify-between rounded-lg border bg-white p-4 hover:bg-surface-gray-1">
                 <div>
                   <div className="font-medium text-ink-gray-9">{ft.name}</div>
                   <div className="text-sm text-ink-gray-4">{formatCurrency(SERVICE_RETAIL_VALS[ft.code] ?? ft.base_price)} + VAT</div>
@@ -539,7 +648,22 @@ export default function CreateOrderClient({ brands }: Props) {
 
           <div className="flex justify-between mt-6">
             <button onClick={() => setStep('wizard')} className="btn-outline">← Previous</button>
-            <button onClick={() => setStep('review')} className="btn-primary">Next →</button>
+            <button 
+              onClick={() => {
+                const defaultItems = [
+                  { id: 'base-doc-fee', item_type: selectedFormType?.name ?? 'Document Fee', amount: basePrice },
+                  ...(hmlrFee > 0 ? [{ id: 'hmlr-fee', item_type: 'HMLR Fee', amount: hmlrFee }] : []),
+                  ...(upsells.faster_docs ? [{ id: 'faster-docs', item_type: 'Fast Track Fee', amount: UPSELL_PRICES.faster_docs }] : []),
+                  ...(upsells.printed_copy ? [{ id: 'printed-copy', item_type: 'Printed Copy Fee', amount: UPSELL_PRICES.printed_copy }] : []),
+                  ...(upsells.sms_updates ? [{ id: 'sms-updates', item_type: 'SMS Updates Fee', amount: UPSELL_PRICES.sms_updates }] : []),
+                ]
+                setOrderItems(defaultItems)
+                setStep('review')
+              }} 
+              className="btn-primary"
+            >
+              Next →
+            </button>
           </div>
         </div>
       </div>
@@ -583,31 +707,68 @@ export default function CreateOrderClient({ brands }: Props) {
 
           {/* Price breakdown */}
           <div className="panel">
-            <div className="section-heading">Price Breakdown</div>
-            <table className="w-full text-sm">
-              <tbody>
-                <tr className="border-t border-outline-gray-2">
-                  <td className="py-2 text-ink-gray-5">Document Fee</td>
-                  <td className="py-2 text-right font-medium">{formatCurrency(basePrice)} <span className="text-xs text-ink-gray-4">Including VAT</span></td>
-                </tr>
-                {hmlrFee > 0 && (
-                  <tr className="border-t border-outline-gray-2">
-                    <td className="py-2 text-ink-gray-5">Land Registry Fee</td>
-                    <td className="py-2 text-right font-medium">{formatCurrency(hmlrFee)} <span className="text-xs text-ink-gray-4">Including VAT</span></td>
-                  </tr>
-                )}
-                {upsellTotal > 0 && (
-                  <tr className="border-t border-outline-gray-2">
-                    <td className="py-2 text-ink-gray-5">Additional Services</td>
-                    <td className="py-2 text-right font-medium">{formatCurrency(upsellTotal)} <span className="text-xs text-ink-gray-4">Including VAT</span></td>
-                  </tr>
-                )}
-                <tr className="border-t-2 border-outline-gray-3">
-                  <td className="py-2 font-bold text-ink-gray-9">Total Fee</td>
-                  <td className="py-2 text-right font-bold text-xl text-ink-gray-9">{formatCurrency(grandTotal)} <span className="text-xs text-ink-gray-4">Including VAT</span></td>
-                </tr>
-              </tbody>
-            </table>
+            <div className="flex items-center justify-between mb-3">
+              <div className="section-heading">Line Items</div>
+              <button 
+                onClick={() => {
+                  const defaultType = ITEM_TYPES[0]
+                  const defaultAmount = DEFAULT_PRICES[defaultType] ?? 0
+                  setOrderItems(prev => [...prev, { id: crypto.randomUUID(), item_type: defaultType, amount: defaultAmount }])
+                }} 
+                className="text-xs font-bold bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg border border-purple-200 hover:bg-purple-100 transition-colors"
+              >
+                + Add Item
+              </button>
+            </div>
+            
+            <div className="space-y-3">
+              {orderItems.map((item) => (
+                <div key={item.id} className="flex items-center gap-3">
+                  <select 
+                    className="form-input flex-1 text-sm text-slate-800 py-1.5" 
+                    value={item.item_type} 
+                    onChange={e => {
+                      const typeStr = e.target.value
+                      const defaultAmount = DEFAULT_PRICES[typeStr] ?? 0
+                      setOrderItems(prev => prev.map(it => it.id === item.id ? { ...it, item_type: typeStr, amount: defaultAmount } : it))
+                    }}
+                  >
+                    {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  
+                  <div className="relative w-32">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-gray-4 text-sm">£</span>
+                    <input
+                      type="number" 
+                      step="0.01" 
+                      className="form-input pl-7 w-full text-sm text-slate-800 py-1.5"
+                      value={item.amount}
+                      onChange={e => {
+                        setOrderItems(prev => prev.map(it => it.id === item.id ? { ...it, amount: Number(e.target.value) } : it))
+                      }}
+                    />
+                  </div>
+                  
+                  <button 
+                    onClick={() => {
+                      setOrderItems(prev => prev.filter(it => it.id !== item.id))
+                    }} 
+                    className="text-danger-red hover:text-red-700 p-1"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              
+              {orderItems.length === 0 && (
+                <p className="text-sm text-ink-gray-4 text-center py-4">No line items. Click "Add Item" to add one.</p>
+              )}
+            </div>
+
+            <div className="mt-4 flex items-center justify-between border-t border-outline-gray-3 pt-3">
+              <span className="font-bold text-ink-gray-9">Total Fee</span>
+              <span className="text-xl font-bold text-ink-gray-9">{formatCurrency(grandTotal)} <span className="text-xs font-normal text-ink-gray-4">Including VAT</span></span>
+            </div>
           </div>
 
           {/* T&Cs */}

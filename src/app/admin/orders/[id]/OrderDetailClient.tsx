@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink, Calendar, RefreshCcw, Clock, ArrowRight, MessageSquare, AlertCircle } from 'lucide-react'
+import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink, Calendar, RefreshCcw, Clock, ArrowRight, MessageSquare, AlertCircle, ShieldCheck, Search } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDateTime, timeAgo, cn } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -19,7 +19,7 @@ type Tab = 'information' | 'process' | 'appointments' | 'related' | 'notes'
 interface OrderItem { id: string; item_type: string; amount: number }
 interface OrderNote { id: string; message: string; category?: string; created_at: string; user?: { full_name: string; avatar_url?: string } }
 interface Appointment { id: string; scheduled_at: string; status: string; solicitor_id: string | null; notes: string | null; solicitor?: { full_name: string } | null; reschedule_history: any[] }
-interface User { id: string; full_name: string }
+interface User { id: string; full_name: string; role?: string; calendly_link?: string }
 
 interface Props {
   order: Record<string, any>
@@ -32,7 +32,67 @@ const ITEM_TYPES = [
   'Application Pack', 'Conveyancing Pack', 'Document Fee',
   'Search & Processing Fee', 'HMLR Fee', 'Fast Track Fee',
   'Printed Copy Fee', 'SMS Updates Fee',
+  'ADV1 Adverse Possession',
+  'AP1 Name Change',
+  'AS1 Assent of Whole',
+  'COG1 Changing Register Details',
+  'COG1 Changing Registered Owners Address',
+  'DJP Death of Joint Proprietor',
+  'FR1 First Registration',
+  'Map Search / Deed Search',
+  'Property Ownership',
+  'RX3 Remove Restriction',
+  'SEV Joint Tenants to Tenants in Common',
+  'Title Plan',
+  'Title Register',
+  'TP1 Transfer of Part',
+  'TR1 Add/Remove Proprietor',
+  'Deed Search',
+  'Map / Land Search (no address)',
+  'Property Ownership (Register + Plan)',
+  'Property Alert Service',
+  'Transfer of Equity',
+  'Name Change on Deeds',
+  'Death of a Joint Proprietor',
+  'Transfer of Equity (Wills / Probate)',
+  'Tenants in Common',
+  'First Registration',
+  'Additional Services',
 ]
+
+const DEFAULT_PRICES: Record<string, number> = {
+  'Title Register': 36.00,
+  'Title Plan': 36.00,
+  'Deed Search': 45.00,
+  'Map / Land Search (no address)': 41.00,
+  'Property Ownership (Register + Plan)': 60.00,
+  'Property Alert Service': 45.00,
+  'Transfer of Equity': 450.00,
+  'Name Change on Deeds': 150.00,
+  'Death of a Joint Proprietor': 400.00,
+  'Transfer of Equity (Wills / Probate)': 450.00,
+  'Tenants in Common': 350.00,
+  'First Registration': 600.00,
+  'Fast Track Fee': 10.00,
+  'Printed Copy Fee': 7.50,
+  'SMS Updates Fee': 4.00,
+  'Deed Search [Application]': 45.00,
+  'Deed Search [Extra]': 45.00,
+  'Property Alert': 45.00,
+  'ADV1 Adverse Possession': 450.00,
+  'AP1 Name Change': 150.00,
+  'AS1 Assent of Whole': 450.00,
+  'COG1 Changing Register Details': 150.00,
+  'COG1 Changing Registered Owners Address': 150.00,
+  'DJP Death of Joint Proprietor': 400.00,
+  'FR1 First Registration': 600.00,
+  'Map Search / Deed Search': 41.00,
+  'Property Ownership': 60.00,
+  'RX3 Remove Restriction': 350.00,
+  'SEV Joint Tenants to Tenants in Common': 350.00,
+  'TP1 Transfer of Part': 450.00,
+  'TR1 Add/Remove Proprietor': 450.00,
+}
 
 // ─── Stripe Elements Payment Form ────────────────────────────────────────
 function StripePaymentForm({ orderId, amount, onSuccess, onCancel }: {
@@ -175,10 +235,24 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   const [showRefundModal, setShowRefundModal] = useState(false)
   const [refundAmount, setRefundAmount] = useState('')
   const [refundReason, setRefundReason] = useState('requested_by_customer')
+
+  // CRM Refund Registration state
+  const [linkedRefunds, setLinkedRefunds] = useState<{ id: string; status: string; reason?: string; refund_amount: number; manager_approval: boolean; created_at: string; created_by_user?: { full_name: string }; approved_by_user?: { full_name: string } }[]>([])
+  const [showRegisterRefund, setShowRegisterRefund] = useState(false)
+  const [registerRefundAmount, setRegisterRefundAmount] = useState('')
+  const [registerRefundReason, setRegisterRefundReason] = useState('')
+  const [submittingRefund, setSubmittingRefund] = useState(false)
+  const [updatingRefundId, setUpdatingRefundId] = useState<string | null>(null)
   const [processingRefund, setProcessingRefund] = useState(false)
 
   // Fetch current user role
   const [currentRole, setCurrentRole] = useState(userRole || '')
+
+  // Email Template States
+  const [emailTemplates, setEmailTemplates] = useState<{ id: string; name: string; subject: string; body: string }[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [copiedSubject, setCopiedSubject] = useState(false)
+  const [copiedBody, setCopiedBody] = useState(false)
   
   useEffect(() => {
     if (!userRole) {
@@ -191,14 +265,26 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
     }
   }, [supabase, userRole])
 
-  // Fetch appointments and staff
+  // Fetch appointments, staff and refunds
   useEffect(() => {
     async function fetchData() {
       const { data: aData } = await supabase.from('appointments').select('*, solicitor:users(full_name)').eq('order_id', order.id).order('scheduled_at', { ascending: true })
       if (aData) setAppointments(aData)
       
-      const { data: sData } = await supabase.from('users').select('id, full_name').in('role', ['admin', 'director', 'sales'])
-      if (sData) setStaff(sData)
+      const { data: sData } = await supabase.from('users').select('id, full_name, role, calendly_link').in('role', ['admin', 'director', 'sales'])
+      if (sData) setStaff(sData as any)
+
+      // Fetch linked refunds
+      const { data: rData } = await supabase
+        .from('refunds')
+        .select('*, created_by_user:users!refunds_created_by_fkey(full_name), approved_by_user:users!refunds_approved_by_fkey(full_name)')
+        .eq('order_id', order.id)
+        .order('created_at', { ascending: false })
+      if (rData) setLinkedRefunds(rData as any)
+
+      // Fetch email templates
+      const { data: tData } = await supabase.from('email_templates').select('*').order('name')
+      if (tData) setEmailTemplates(tData)
     }
     fetchData()
   }, [supabase, order.id])
@@ -210,6 +296,24 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   const formType = order.form_type as { name: string } | null
   const status = order.status as string | null
   const stripePaymentId = order.stripe_payment_intent_id as string | undefined
+
+  function renderTemplate(text: string) {
+    if (!text) return ''
+    const customerName = `${order.first_name ?? ''} ${order.last_name ?? ''}`.trim() || 'Customer'
+    const brandName = brand?.name || 'Land Registry Services'
+    const orderNumber = shortId
+    const serviceName = formType?.name || 'Property Transaction'
+    
+    return text
+      .replace(/{{CustomerName}}/g, customerName)
+      .replace(/{{customer_name}}/g, customerName)
+      .replace(/{{BrandName}}/g, brandName)
+      .replace(/{{brand_name}}/g, brandName)
+      .replace(/{{OrderNumber}}/g, orderNumber)
+      .replace(/{{order_number}}/g, orderNumber)
+      .replace(/{{Service}}/g, serviceName)
+      .replace(/{{service}}/g, serviceName)
+  }
 
   const total = items.reduce((sum, item) => sum + Number(item.amount), 0)
 
@@ -225,10 +329,24 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
 
   // ─── Order Items ──────────────────────────────────────────────
   function addItem() {
-    setItems(prev => [...prev, { id: crypto.randomUUID(), item_type: ITEM_TYPES[0], amount: 0 }])
+    const defaultType = ITEM_TYPES[0]
+    const defaultAmount = DEFAULT_PRICES[defaultType] ?? 0
+    setItems(prev => [...prev, { id: crypto.randomUUID(), item_type: defaultType, amount: defaultAmount }])
   }
   function updateItem(id: string, field: 'item_type' | 'amount', value: string | number) {
-    setItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it))
+    setItems(prev => prev.map(it => {
+      if (it.id === id) {
+        if (field === 'item_type') {
+          const typeStr = String(value)
+          const defaultAmount = DEFAULT_PRICES[typeStr] ?? 0
+          return { ...it, item_type: typeStr, amount: defaultAmount }
+        }
+        if (field === 'amount') {
+          return { ...it, amount: Number(value) }
+        }
+      }
+      return it
+    }))
   }
   function removeItem(id: string) {
     setItems(prev => prev.filter(it => it.id !== id))
@@ -468,6 +586,99 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
       toast.error(message)
     } finally {
       setProcessingRefund(false)
+    }
+  }
+
+  // ─── CRM Refund Registration ───────────────────────────
+  const REFUND_STATUS_CONFIG: Record<string, { label: string; variant: 'orange' | 'blue' | 'green' | 'red' }> = {
+    requested: { label: 'Requested', variant: 'orange' },
+    under_review: { label: 'Under Review', variant: 'blue' },
+    approved: { label: 'Approved', variant: 'green' },
+    rejected: { label: 'Rejected', variant: 'red' },
+    paid: { label: 'Paid', variant: 'green' },
+  }
+
+  const REFUND_NEXT_STATUS: Record<string, string | null> = {
+    requested: 'under_review',
+    under_review: 'approved',
+    approved: 'paid',
+    rejected: null,
+    paid: null,
+  }
+
+  async function registerRefund() {
+    if (!registerRefundAmount || Number(registerRefundAmount) <= 0) {
+      toast.error('Please enter a valid refund amount')
+      return
+    }
+    setSubmittingRefund(true)
+    try {
+      const res = await fetch('/api/refunds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: order.id,
+          reason: registerRefundReason,
+          refund_amount: Number(registerRefundAmount),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      setLinkedRefunds(prev => [{ ...data.refund, created_by_user: { full_name: 'You' } }, ...prev])
+      await addTimelineNote(`🔄 Refund registered — £${Number(registerRefundAmount).toFixed(2)}${registerRefundReason ? ` — ${registerRefundReason}` : ''}`, 'Refund')
+      toast.success('Refund registered successfully')
+      setShowRegisterRefund(false)
+      setRegisterRefundAmount('')
+      setRegisterRefundReason('')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to register refund'
+      toast.error(message)
+    } finally {
+      setSubmittingRefund(false)
+    }
+  }
+
+  async function updateLinkedRefundStatus(refundId: string, newStatus: string) {
+    setUpdatingRefundId(refundId)
+    try {
+      const res = await fetch('/api/refunds', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refund_id: refundId, status: newStatus }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      setLinkedRefunds(prev => prev.map(r => r.id === refundId ? { ...r, status: newStatus } : r))
+      const label = REFUND_STATUS_CONFIG[newStatus]?.label || newStatus
+      toast.success(`Refund status updated to ${label}`)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update'
+      toast.error(message)
+    } finally {
+      setUpdatingRefundId(null)
+    }
+  }
+
+  async function toggleLinkedRefundApproval(refundId: string, currentApproval: boolean) {
+    setUpdatingRefundId(refundId)
+    try {
+      const res = await fetch('/api/refunds', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refund_id: refundId, manager_approval: !currentApproval }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      setLinkedRefunds(prev => prev.map(r => r.id === refundId ? { ...r, manager_approval: !currentApproval } : r))
+      toast.success(!currentApproval ? 'Manager approval granted' : 'Manager approval revoked')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update'
+      toast.error(message)
+    } finally {
+      setUpdatingRefundId(null)
     }
   }
 
@@ -884,7 +1095,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
             {canRefund && (
               <div className="panel border-red-200">
                 <div className="section-heading flex items-center gap-2 text-danger-red">
-                  <RotateCcw className="h-4 w-4" /> Refund
+                  <RotateCcw className="h-4 w-4" /> Stripe Refund
                 </div>
                 {showRefundModal ? (
                   <div className="mt-3 space-y-3">
@@ -916,11 +1127,244 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                   </div>
                 ) : (
                   <button onClick={() => setShowRefundModal(true)} className="btn-danger w-full py-3 text-base font-semibold gap-2 mt-3">
-                    <RotateCcw className="h-5 w-5" /> Issue Refund
+                    <RotateCcw className="h-5 w-5" /> Issue Stripe Refund
                   </button>
                 )}
               </div>
             )}
+
+            {/* ─── CRM REFUND SYSTEM ─────────────────────────────────── */}
+            <div className="panel border-purple-200">
+              <div className="flex items-center justify-between">
+                <div className="section-heading flex items-center gap-2 text-purple-800">
+                  <RotateCcw className="h-4 w-4" /> Refund System
+                </div>
+                <button
+                  onClick={() => {
+                    setShowRegisterRefund(true)
+                    setRegisterRefundAmount(String(order.amount_total || ''))
+                    setRegisterRefundReason('')
+                  }}
+                  className="text-xs font-bold bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg border border-purple-200 hover:bg-purple-100 transition-colors inline-flex items-center gap-1"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Register Refund
+                </button>
+              </div>
+
+              {/* Register refund form */}
+              {showRegisterRefund && (
+                <div className="mt-4 bg-purple-50/50 border border-purple-200 rounded-lg p-4 space-y-3">
+                  <h4 className="text-sm font-bold text-purple-900">Register New Refund</h4>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Refund Amount</label>
+                    <div className="relative w-48">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-gray-4 text-sm">£</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="form-input pl-7 w-full"
+                        placeholder={String(order.amount_total)}
+                        value={registerRefundAmount}
+                        onChange={e => setRegisterRefundAmount(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Reason</label>
+                    <textarea
+                      className="form-input w-full resize-none text-sm"
+                      rows={2}
+                      placeholder="Describe the reason for this refund..."
+                      value={registerRefundReason}
+                      onChange={e => setRegisterRefundReason(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex gap-2 justify-end pt-1">
+                    <button onClick={() => setShowRegisterRefund(false)} className="btn-outline text-xs">Cancel</button>
+                    <button
+                      onClick={registerRefund}
+                      disabled={submittingRefund || !registerRefundAmount}
+                      className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-md text-xs font-bold transition-colors inline-flex items-center gap-1"
+                    >
+                      {submittingRefund ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                      {submittingRefund ? 'Registering...' : 'Register Refund'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Linked refunds list */}
+              {linkedRefunds.length > 0 ? (
+                <div className="mt-4 space-y-3">
+                  {linkedRefunds.map(refund => {
+                    const cfg = REFUND_STATUS_CONFIG[refund.status] || { label: refund.status, variant: 'gray' as const }
+                    const nextStatus = REFUND_NEXT_STATUS[refund.status]
+                    const isUpdating = updatingRefundId === refund.id
+                    return (
+                      <div key={refund.id} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                        <div className="flex items-center justify-between p-3 bg-slate-50/60 border-b border-slate-100">
+                          <div className="flex items-center gap-3">
+                            <Badge label={cfg.label.toUpperCase()} variant={cfg.variant} />
+                            <span className="text-sm font-bold text-danger-red">
+                              {formatCurrency(Number(refund.refund_amount))}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={cn(
+                              'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full',
+                              refund.manager_approval
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-slate-100 text-slate-500 border border-slate-200'
+                            )}>
+                              {refund.manager_approval ? <ShieldCheck className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
+                              {refund.manager_approval ? 'Director Approved' : 'Approval Pending'}
+                            </span>
+                          </div>
+                        </div>
+                        {refund.reason && (
+                          <div className="px-3 py-2 text-sm text-slate-600 border-b border-slate-100">
+                            <strong className="text-slate-700">Reason:</strong> {refund.reason}
+                          </div>
+                        )}
+                        <div className="px-3 py-2 flex items-center justify-between">
+                          <div className="text-[11px] text-ink-gray-4">
+                            Registered by {refund.created_by_user?.full_name || '—'} · {timeAgo(refund.created_at)}
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {isAdminOrDirector && nextStatus && (
+                              <button
+                                onClick={() => updateLinkedRefundStatus(refund.id, nextStatus)}
+                                disabled={isUpdating}
+                                className="text-[11px] font-bold px-2 py-1 border rounded-md bg-white hover:bg-purple-50 text-purple-700 border-purple-200 transition-colors inline-flex items-center gap-1"
+                              >
+                                {isUpdating ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
+                                {REFUND_STATUS_CONFIG[nextStatus]?.label || nextStatus}
+                              </button>
+                            )}
+                            {isAdminOrDirector && refund.status !== 'rejected' && refund.status !== 'paid' && (
+                              <button
+                                onClick={() => updateLinkedRefundStatus(refund.id, 'rejected')}
+                                disabled={isUpdating}
+                                className="text-[11px] font-bold px-2 py-1 border border-red-200 rounded-md bg-red-50 hover:bg-red-100 text-red-700 transition-colors"
+                              >
+                                Reject
+                              </button>
+                            )}
+                            {currentRole === 'director' && refund.status !== 'paid' && (
+                              <button
+                                onClick={() => toggleLinkedRefundApproval(refund.id, refund.manager_approval)}
+                                disabled={isUpdating}
+                                className={cn(
+                                  "text-[11px] font-bold px-2 py-1 border rounded-md transition-colors inline-flex items-center gap-1",
+                                  refund.manager_approval
+                                    ? "border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700"
+                                    : "border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
+                                )}
+                              >
+                                <ShieldCheck className="h-3 w-3" />
+                                {refund.manager_approval ? 'Revoke' : 'Approve'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : !showRegisterRefund && (
+                <div className="mt-4 text-center py-6 bg-slate-50 border border-slate-100 rounded-lg">
+                  <RotateCcw className="h-6 w-6 text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm text-slate-500">No refunds registered for this order</p>
+                </div>
+              )}
+            </div>
+
+            {/* Email Templates Panel */}
+            <div className="panel border-slate-200">
+              <div className="section-heading flex items-center gap-2">
+                <MessageSquare className="h-4 w-4 text-slate-500" />
+                Email Templates
+              </div>
+              <p className="text-xs text-ink-gray-5 mb-3">
+                Select a standard template to preview and copy communications for this order.
+              </p>
+              
+              <div className="space-y-3">
+                <select
+                  className="form-input w-full"
+                  value={selectedTemplateId}
+                  onChange={e => {
+                    setSelectedTemplateId(e.target.value)
+                    setCopiedSubject(false)
+                    setCopiedBody(false)
+                  }}
+                >
+                  <option value="">Select a template...</option>
+                  {emailTemplates.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+
+                {selectedTemplateId && (() => {
+                  const t = emailTemplates.find(tem => tem.id === selectedTemplateId)
+                  if (!t) return null
+                  const renderedSubject = renderTemplate(t.subject)
+                  const renderedBody = renderTemplate(t.body)
+                  
+                  return (
+                    <div className="space-y-4 border-t pt-3 mt-3">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Subject Line</label>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(renderedSubject)
+                              setCopiedSubject(true)
+                              toast.success('Subject copied!')
+                              setTimeout(() => setCopiedSubject(false), 2000)
+                            }}
+                            className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 bg-purple-50 hover:bg-purple-100 px-2 py-1 rounded transition-colors"
+                          >
+                            <Copy className="h-3 w-3" />
+                            {copiedSubject ? 'Copied!' : 'Copy Subject'}
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          readOnly
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-semibold text-slate-800 outline-none"
+                          value={renderedSubject}
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Email Body</label>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(renderedBody)
+                              setCopiedBody(true)
+                              toast.success('Email body copied!')
+                              setTimeout(() => setCopiedBody(false), 2000)
+                            }}
+                            className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 bg-purple-50 hover:bg-purple-100 px-2 py-1 rounded transition-colors"
+                          >
+                            <Copy className="h-3 w-3" />
+                            {copiedBody ? 'Copied!' : 'Copy Body'}
+                          </button>
+                        </div>
+                        <textarea
+                          readOnly
+                          rows={10}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs font-medium text-slate-700 leading-relaxed outline-none resize-y"
+                          value={renderedBody}
+                        />
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            </div>
 
             <div className="space-y-2">
               {status !== 'dead' && (
@@ -965,32 +1409,108 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                 <h3 className="font-bold text-slate-800 text-sm mb-4 border-b pb-2">
                   {reschedulingId ? 'Reschedule Appointment' : 'New Appointment'}
                 </h3>
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Date</label>
-                    <input type="date" className="form-input w-full text-sm" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Time</label>
-                    <input type="time" className="form-input w-full text-sm" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} />
-                  </div>
-                </div>
+                
                 <div className="mb-4">
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Assign Solicitor (Optional)</label>
-                  <select className="form-input w-full text-sm" value={appointmentSolicitor} onChange={e => setAppointmentSolicitor(e.target.value)}>
+                  <select className="form-input w-full text-sm text-slate-800" value={appointmentSolicitor} onChange={e => setAppointmentSolicitor(e.target.value)}>
                     <option value="">-- Unassigned --</option>
-                    {staff.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                    {staff.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.full_name} ({s.role?.toUpperCase()}){s.calendly_link ? ' - Calendly Linked' : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
+
+                {(() => {
+                  const selectedStaffSolicitor = staff.find(s => s.id === appointmentSolicitor);
+                  return selectedStaffSolicitor?.calendly_link ? (
+                    <div className="space-y-4 mb-4">
+                      <div className="border border-purple-100 rounded-xl p-3 bg-purple-50/30">
+                        <div className="text-xs font-bold text-purple-900 mb-2 flex items-center justify-between">
+                          <span>Calendly Availability for {selectedStaffSolicitor.full_name}</span>
+                          <a href={selectedStaffSolicitor.calendly_link} target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline inline-flex items-center gap-0.5">
+                            Open in new tab ↗
+                          </a>
+                        </div>
+                        <div className="bg-white border border-purple-100 rounded-lg overflow-hidden h-[360px]">
+                          <iframe
+                            src={selectedStaffSolicitor.calendly_link}
+                            width="100%"
+                            height="100%"
+                            className="border-0 w-full h-full"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-3 text-xs">
+                        <p className="font-semibold mb-1">📅 Booking via Calendly:</p>
+                        <p className="text-slate-600 leading-relaxed">Once you schedule using the Calendly widget above, the appointment is automatically synced. You do not need to fill out the manual date/time inputs below. Just click <strong>"Done (Booked via Calendly)"</strong>.</p>
+                      </div>
+
+                      <div className="border-t border-dashed border-slate-200 pt-3 mt-3">
+                        <div className="text-[11px] font-bold text-slate-500 mb-2 uppercase tracking-wider">Or schedule manually (override):</div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Date</label>
+                            <input type="date" className="form-input w-full text-sm" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Time</label>
+                            <input type="time" className="form-input w-full text-sm" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Date</label>
+                        <input type="date" className="form-input w-full text-sm" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Time</label>
+                        <input type="time" className="form-input w-full text-sm" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} />
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 <div className="mb-4">
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Notes</label>
                   <textarea className="form-input w-full text-sm resize-none" rows={2} value={appointmentNotes} onChange={e => setAppointmentNotes(e.target.value)}></textarea>
                 </div>
                 <div className="flex justify-end gap-2">
                   <button onClick={() => setShowAppointmentForm(false)} className="btn-outline text-xs py-1.5">Cancel</button>
-                  <button onClick={handleSaveAppointment} disabled={saving} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-md text-xs font-bold">
-                    {saving ? 'Saving...' : 'Save Booking'}
-                  </button>
+                  {(() => {
+                    const selectedStaffSolicitor = staff.find(s => s.id === appointmentSolicitor);
+                    return selectedStaffSolicitor?.calendly_link ? (
+                      <>
+                        <button 
+                          onClick={async () => {
+                            toast.success('Done! The booking will sync automatically via webhook in a few seconds.')
+                            setShowAppointmentForm(false)
+                            setTimeout(async () => {
+                              const { data: aData } = await supabase.from('appointments').select('*, solicitor:users(full_name)').eq('order_id', order.id).order('scheduled_at', { ascending: true })
+                              if (aData) setAppointments(aData)
+                            }, 2000)
+                          }} 
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-md text-xs font-bold transition-colors"
+                        >
+                          Done (Booked via Calendly)
+                        </button>
+                        {appointmentDate && appointmentTime && (
+                          <button onClick={handleSaveAppointment} disabled={saving} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-md text-xs font-bold">
+                            {saving ? 'Saving...' : 'Save Manual Booking'}
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <button onClick={handleSaveAppointment} disabled={saving} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-md text-xs font-bold">
+                        {saving ? 'Saving...' : 'Save Booking'}
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             )}

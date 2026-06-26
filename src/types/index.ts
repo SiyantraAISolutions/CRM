@@ -9,6 +9,7 @@ export interface User {
   current_status?: ActivityStatus
   status_started_at?: string
   sales_target?: number
+  calendly_link?: string
 }
 
 export type ActivityStatus = 'available' | 'break' | 'lunch' | 'toilet' | 'training'
@@ -169,6 +170,27 @@ export interface Payment {
   stripe_payment_intent_id?: string
   notes?: string
   created_at: string
+}
+
+// =============================================
+// REFUNDS
+// =============================================
+export type RefundStatus = 'requested' | 'under_review' | 'approved' | 'rejected' | 'paid'
+
+export interface Refund {
+  id: string
+  order_id: string
+  order?: Order
+  status: RefundStatus
+  reason?: string
+  refund_amount: number
+  manager_approval: boolean
+  approved_by?: string
+  approved_by_user?: User
+  created_by: string
+  created_by_user?: User
+  created_at: string
+  updated_at: string
 }
 
 // =============================================
