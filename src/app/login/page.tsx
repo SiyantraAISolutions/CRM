@@ -18,16 +18,50 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
 
-    const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({ 
+        email: email.trim(), 
+        password 
+      })
 
-    if (authError) {
-      setError(authError.message)
+      if (authError) {
+        console.error('Auth error:', authError)
+        
+        // Provide more helpful error messages
+        if (authError.message.includes('Invalid login credentials')) {
+          setError('Invalid email or password. Please check your credentials and try again.')
+        } else if (authError.message.includes('Email not confirmed')) {
+          setError('Please check your email and confirm your account before logging in.')
+        } else {
+          setError(authError.message)
+        }
+        setLoading(false)
+        return
+      }
+
+      // Check if user exists in users table
+      const { data: userProfile, error: profileError } = await supabase
+        .from('users')
+        .select('id, role, full_name')
+        .eq('id', data.user.id)
+        .single()
+
+      if (profileError || !userProfile) {
+        console.error('Profile fetch error:', profileError)
+        setError('Account found but profile not set up. Please contact administrator.')
+        await supabase.auth.signOut()
+        setLoading(false)
+        return
+      }
+
+      console.log('Login successful for:', userProfile.full_name)
+      router.push('/admin')
+      router.refresh()
+    } catch (err) {
+      console.error('Unexpected error:', err)
+      setError('An unexpected error occurred. Please try again.')
       setLoading(false)
-      return
     }
-
-    router.push('/admin')
-    router.refresh()
   }
 
   return (

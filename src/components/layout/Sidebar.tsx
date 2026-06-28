@@ -44,9 +44,10 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
     async function refreshCounts() {
       try {
         // Check if user is authenticated first
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) {
-          console.log('No active session, skipping badge count refresh')
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+        
+        // Silently return if no session (expected during page transitions)
+        if (!session || sessionError) {
           return
         }
 
@@ -57,11 +58,11 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
           supabase.from('refunds').select('id', { count: 'exact', head: true }).in('status', ['requested', 'under_review', 'approved']),
         ])
 
-        // Check for errors in responses
-        if (t.error) console.error('Error fetching tickets:', t.error.message)
-        if (h.error) console.error('Error fetching help requests:', h.error.message)
-        if (a.error) console.error('Error fetching abandoned orders:', a.error.message)
-        if (r.error) console.error('Error fetching refunds:', r.error.message)
+        // Only log errors if they're not auth-related
+        if (t.error && !t.error.message.includes('JWT')) console.error('Error fetching tickets:', t.error.message)
+        if (h.error && !h.error.message.includes('JWT')) console.error('Error fetching help requests:', h.error.message)
+        if (a.error && !a.error.message.includes('JWT')) console.error('Error fetching abandoned orders:', a.error.message)
+        if (r.error && !r.error.message.includes('JWT')) console.error('Error fetching refunds:', r.error.message)
 
         if (isMounted) {
           setCounts(c => ({
@@ -72,9 +73,11 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
             refunds: r.count ?? 0,
           }))
         }
-      } catch (error) {
-        console.error('Error refreshing counts:', error)
-        // Keep existing counts on error
+      } catch (error: any) {
+        // Silently handle auth errors during hot reload
+        if (error?.message && !error.message.includes('JWT') && !error.message.includes('session')) {
+          console.error('Error refreshing counts:', error)
+        }
       }
     }
     
@@ -95,9 +98,10 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
     async function fetchData() {
       try {
         // Check if user is authenticated first
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) {
-          console.log('No active session, skipping sidebar data fetch')
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+        
+        // Silently return if no session (expected during page transitions)
+        if (!session || sessionError) {
           return
         }
 
@@ -107,9 +111,10 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
           supabase.from('orders').select('form_type_id').neq('status', 'abandoned').neq('status', 'dead')
         ])
 
-        if (sError) console.error('Error fetching form types:', sError.message)
-        if (tError) console.error('Error fetching email templates:', tError.message)
-        if (oError) console.error('Error fetching orders:', oError.message)
+        // Only log errors if they're not auth-related
+        if (sError && !sError.message.includes('JWT')) console.error('Error fetching form types:', sError.message)
+        if (tError && !tError.message.includes('JWT')) console.error('Error fetching email templates:', tError.message)
+        if (oError && !oError.message.includes('JWT')) console.error('Error fetching orders:', oError.message)
 
         if (!isMounted) return
 
@@ -150,9 +155,11 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
           })
           setOrderCounts(counts)
         }
-      } catch (error) {
-        console.error('Error fetching sidebar data:', error)
-        // Keep empty state on error
+      } catch (error: any) {
+        // Silently handle auth errors during hot reload
+        if (error?.message && !error.message.includes('JWT') && !error.message.includes('session')) {
+          console.error('Error fetching sidebar data:', error)
+        }
       }
     }
     fetchData()
