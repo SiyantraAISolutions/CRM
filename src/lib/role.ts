@@ -12,6 +12,7 @@ export const ROLE_ROUTES: Record<string, UserRole[]> = {
   '/admin/orders':      ['director', 'admin', 'sales'],
   '/admin/tasks':       ['director', 'admin', 'sales'],
   '/admin/create-order':['director', 'sales', 'admin'],
+  '/admin/blogs':       ['director'],
 }
 
 export function getDashboardPath(role: UserRole): string {

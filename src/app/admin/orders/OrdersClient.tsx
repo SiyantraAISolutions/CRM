@@ -60,6 +60,7 @@ export default function OrdersClient({ brands, formTypes }: Props) {
       `, { count: 'exact' })
       .order(sortKey, { ascending: sortDir === 'asc' })
       .range((page - 1) * pageSize, page * pageSize - 1)
+      .not('status', 'in', '("abandoned","dead")')
 
     if (activeBusinessId !== 'all') query = query.eq('business_id', activeBusinessId)
     if (brandFilter !== 'all') query = query.eq('brand_id', brandFilter)

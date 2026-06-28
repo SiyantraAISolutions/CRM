@@ -106,7 +106,9 @@ export default async function DashboardPage({ searchParams }: Props) {
         stats={stats}
         currentUserId={userId}
         userName={userName}
-        services={(formTypes as any) ?? []}
+        tasks={tasksList ?? []}
+        helpRequests={recentHelpRequests ?? []}
+        pendingDocs={recentPendingDocs ?? []}
       />
     </div>
   )

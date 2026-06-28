@@ -34,8 +34,8 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-lg mb-3 overflow-hidden">
-            <img src="/kws_logo.jpeg" alt="KWS Logo" className="h-full w-full object-contain" />
+          <div className="flex h-28 w-28 items-center justify-center rounded-3xl bg-white dark:bg-slate-900 shadow-xl mb-4 overflow-hidden p-2">
+            <img src="/kws-removebg-preview.png" alt="KWS Logo" className="h-full w-full object-contain" />
           </div>
           <h1 className="text-xl font-bold text-ink-gray-9">KWS Management Services</h1>
           <p className="text-sm text-ink-gray-4 mt-1">Internal CRM & Order System</p>

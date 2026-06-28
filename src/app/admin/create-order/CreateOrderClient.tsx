@@ -140,18 +140,29 @@ export default function CreateOrderClient({ brands }: Props) {
         }
 
         const orderOfServices = [
-          { code: 'TITLE_REGISTER', name: 'Title Register' },
+          { code: 'PROPERTY_OWNERSHIP', name: 'Property Ownership' },
           { code: 'TITLE_PLAN', name: 'Title Plan' },
+          { code: 'TITLE_REGISTER', name: 'Title Register' },
+          { code: 'MAP_SEARCH', name: 'Map Search' },
           { code: 'DEED_SEARCH', name: 'Deed Search', isStatic: true, fallbackCode: 'MAP_SEARCH' },
-          { code: 'MAP_SEARCH', name: 'Map / Land Search (no address)' },
-          { code: 'PROPERTY_OWNERSHIP', name: 'Property Ownership (Register + Plan)' },
-          { code: 'PROPERTY_ALERT', name: 'Property Alert Service', isStatic: true, fallbackCode: 'PROPERTY_OWNERSHIP' },
-          { code: 'TR1', name: 'Transfer of Equity' },
-          { code: 'AP1', name: 'Name Change on Deeds' },
-          { code: 'DJP', name: 'Death of a Joint Proprietor' },
-          { code: 'AS1', name: 'Transfer of Equity (Wills / Probate)' },
-          { code: 'SEV', name: 'Tenants in Common' },
-          { code: 'FR1', name: 'First Registration' }
+          { code: 'APPLICATION_ENQUIRY', name: 'Application Enquiry', isStatic: true, fallbackCode: 'TITLE_REGISTER' },
+          { code: 'PROPERTY_ALERT', name: 'Property Alert', isStatic: true, fallbackCode: 'PROPERTY_OWNERSHIP' },
+          { code: 'APPLICATION_PACK', name: 'Application Pack', isStatic: true, fallbackCode: 'PROPERTY_OWNERSHIP' },
+          { code: 'DIY_FORMS', name: 'DIY Forms', isStatic: true, fallbackCode: 'TITLE_REGISTER' },
+          { code: 'CONVEYANCING_PACK', name: 'Conveyancing Pack', isStatic: true, fallbackCode: 'PROPERTY_OWNERSHIP' },
+          { code: 'CONVEYANCING_PACK_ONLINE', name: 'Conveyancing Pack Online', isStatic: true, fallbackCode: 'PROPERTY_OWNERSHIP' },
+          { code: 'AP1', name: 'AP1 Name Change' },
+          { code: 'DJP', name: 'DJP Death of Joint Proprietor' },
+          { code: 'TR1', name: 'TR1 Add/Remove Proprietor' },
+          { code: 'COG1', name: 'COG1 Changing Registered Owners Address' },
+          { code: 'SEV', name: 'SEV Joint Tenants to Tenants in Common' },
+          { code: 'RX3', name: 'RX3 Remove Restriction' },
+          { code: 'FR1', name: 'FR1 First Registration' },
+          { code: 'TP1', name: 'TP1 Transfer of Part' },
+          { code: 'ADV1', name: 'ADV1 Adverse Possession' },
+          { code: 'AS1', name: 'AS1 Assent of Whole' },
+          { code: 'DJP_FULL', name: 'DJP Death of Joint Proprietor (full Service)', isStatic: true, fallbackCode: 'DJP' },
+          { code: 'TR1_FULL', name: 'TR1 Add/Remove Proprietor (Full Service)', isStatic: true, fallbackCode: 'TR1' }
         ]
 
         const mappedServices: FormType[] = orderOfServices.map(item => {
@@ -204,7 +215,10 @@ export default function CreateOrderClient({ brands }: Props) {
   const upsellTotal = (upsells.faster_docs ? UPSELL_PRICES.faster_docs : 0)
     + (upsells.printed_copy ? UPSELL_PRICES.printed_copy : 0)
     + (upsells.sms_updates ? UPSELL_PRICES.sms_updates : 0)
-  const staticGrandTotal = basePrice + upsellTotal + hmlrFee
+  const addonTotal = (formData.addon_title_plan === 'yes' ? 36.00 : 0)
+    + (formData.addon_title_register === 'yes' ? 36.00 : 0)
+    + (formData.addon_flood_risk === 'yes' ? 25.00 : 0)
+  const staticGrandTotal = basePrice + upsellTotal + hmlrFee + addonTotal
   const grandTotal = orderItems.length > 0 
     ? orderItems.reduce((sum, item) => sum + Number(item.amount), 0)
     : staticGrandTotal
@@ -215,6 +229,15 @@ export default function CreateOrderClient({ brands }: Props) {
 
   async function createOrderInDB() {
     const { data: { user } } = await supabase.auth.getUser()
+
+    let finalTenure = formData.tenure || ''
+    if (selectedFormType?.code === 'DEED_SEARCH') {
+      const parts: string[] = []
+      if (formData.tenure) parts.push(formData.tenure)
+      if (formData.preferred_deed) parts.push(`Preferred Deed: ${formData.preferred_deed}`)
+      if (formData.deed_search_reason) parts.push(`Reason: ${formData.deed_search_reason}`)
+      finalTenure = parts.join(' | ')
+    }
 
     const orderPayload = {
       brand_id: selectedBrand!.id,
@@ -238,7 +261,7 @@ export default function CreateOrderClient({ brands }: Props) {
       county: formData.county,
       postcode: formData.postcode,
       title_number: formData.title_number,
-      tenure: formData.tenure,
+      tenure: finalTenure,
       property_value: propertyValue ? Number(propertyValue) : null,
       hmlr_fee: hmlrFee || null,
       tenancy_type: formData.tenancy_type,
@@ -386,97 +409,78 @@ export default function CreateOrderClient({ brands }: Props) {
   // STEP: LANDING
   if (step === 'landing') {
     return (
-      <div className="flex flex-col items-center justify-center flex-1 gap-8 p-10">
-        <h2 className="text-2xl font-bold text-ink-gray-9 uppercase tracking-wide">Create Order</h2>
-        <div className="flex gap-4 w-full max-w-xl">
+      <div className="flex-1 overflow-y-auto flex flex-col items-center justify-start pt-32 gap-10 p-10 bg-[#f8f9fa]">
+        <h2 className="text-[28px] font-bold text-[#0B1B3A] tracking-tight">CREATE ORDER</h2>
+        <div className="flex gap-6 w-full max-w-2xl">
           <button
             onClick={() => { setIsInbound(true); }}
             className={cn(
-              'flex-1 flex flex-col items-center gap-3 rounded-xl border-2 p-8 text-lg font-semibold transition-all',
+              'flex-1 flex flex-col items-center gap-4 rounded-2xl border-2 p-10 text-[18px] font-bold transition-all duration-200',
               isInbound === true
-                ? 'border-success-green bg-surface-green text-success-green shadow-md'
-                : 'border-outline-gray-3 hover:border-success-green hover:bg-surface-green/50 text-ink-gray-7'
+                ? 'border-[#0B1B3A] bg-[#0B1B3A] text-white shadow-xl scale-[1.03]'
+                : 'border-slate-200 bg-white hover:border-[#0B1B3A] hover:bg-slate-50 text-slate-600 hover:text-[#0B1B3A]'
             )}
           >
-            <Phone className="h-8 w-8" />
+            <Phone className={cn("h-10 w-10", isInbound === true ? "text-white" : "text-slate-400")} />
             This is an inbound call.
           </button>
           <button
             onClick={() => { setIsInbound(false); }}
             className={cn(
-              'flex-1 flex flex-col items-center gap-3 rounded-xl border-2 p-8 text-lg font-semibold transition-all',
+              'flex-1 flex flex-col items-center gap-4 rounded-2xl border-2 p-10 text-[18px] font-bold transition-all duration-200',
               isInbound === false
-                ? 'border-warning-orange bg-surface-orange text-warning-orange shadow-md'
-                : 'border-outline-gray-3 hover:border-warning-orange hover:bg-surface-orange/50 text-ink-gray-7'
+                ? 'border-[#f97316] bg-[#f97316] text-white shadow-xl scale-[1.03]'
+                : 'border-slate-200 bg-white hover:border-[#f97316] hover:bg-orange-50 text-slate-600 hover:text-[#f97316]'
             )}
           >
-            <PhoneOff className="h-8 w-8" />
+            <PhoneOff className={cn("h-10 w-10", isInbound === false ? "text-white" : "text-slate-400")} />
             This is not an inbound call.
           </button>
         </div>
 
-        {isInbound !== null && (
-          <div className="w-full max-w-xl">
-            <label className="form-label text-sm">Select Phone Identifier</label>
-            <select
-              className="form-input"
-              value={selectedBrand?.id ?? ''}
-              onChange={e => {
-                const b = brands.find(br => br.id === e.target.value)
-                setSelectedBrand(b ?? null)
-              }}
-            >
-              <option value="">Select Phone Identifier...</option>
-              {brands.map(b => (
-                <option key={b.id} value={b.id}>{b.code} — {b.name}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {selectedBrand && (
-          <button
-            onClick={() => setStep('form-type')}
-            className="btn-primary px-8 py-2.5 text-base gap-2"
-          >
-            Continue <ChevronRight className="h-4 w-4" />
-          </button>
-        )}
-      </div>
-    )
-  }
-
-  // STEP: FORM TYPE
-  if (step === 'form-type') {
-    return (
-      <div className="flex-1 overflow-y-auto p-8">
-        <div className="max-w-2xl mx-auto">
-          <h2 className="text-xl font-bold text-ink-gray-9 uppercase tracking-wide mb-2">
-            Select Form Type
-          </h2>
-          <p className="text-sm text-ink-gray-4 mb-6">{selectedBrand?.code} — {selectedBrand?.name}</p>
-
-          <div className="space-y-2">
-            {formTypes.map(ft => (
-              <div key={ft.code} className="flex items-center justify-between rounded-lg border bg-white p-4 hover:bg-surface-gray-1">
-                <div>
-                  <div className="font-medium text-ink-gray-9">{ft.name}</div>
-                  <div className="text-sm text-ink-gray-4">{formatCurrency(SERVICE_RETAIL_VALS[ft.code] ?? ft.base_price)} + VAT</div>
-                </div>
-                <button
-                  onClick={() => { setSelectedFormType(ft); setStep('wizard') }}
-                  className="btn-primary"
-                >
-                  Create Order
-                </button>
+        <div className={cn(
+          "w-full max-w-2xl transition-all duration-500 ease-in-out",
+          isInbound !== null ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none"
+        )}>
+          <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-6">
+            <div>
+              <label className="block text-[15px] font-semibold text-slate-800 mb-3">Select Phone Identifier</label>
+              <select
+                className="w-full h-12 px-4 border border-slate-300 rounded-lg focus:border-[#0B1B3A] focus:ring-1 focus:ring-[#0B1B3A] focus:outline-none text-[15px] text-slate-700 bg-white shadow-sm transition-shadow"
+                value={selectedBrand?.id ?? ''}
+                onChange={e => {
+                  const b = brands.find(br => br.id === e.target.value)
+                  setSelectedBrand(b ?? null)
+                }}
+              >
+                <option value="">Select Phone Identifier...</option>
+                {brands.map(b => (
+                  <option key={b.id} value={b.id}>{b.code} — {b.name}</option>
+                ))}
+              </select>
+            </div>
+            {selectedBrand && (
+              <div className="mt-4 border border-slate-200 rounded-lg overflow-hidden flex flex-col">
+                {formTypes.map((ft, idx) => (
+                  <div key={ft.code} className={cn(
+                    "flex items-center justify-between p-4",
+                    idx % 2 === 0 ? "bg-[#f8f9fa]" : "bg-white"
+                  )}>
+                    <div className="font-medium text-[#2c3e50] text-[15px]">{ft.name}</div>
+                    <button
+                      onClick={() => { setSelectedFormType(ft); setStep('wizard') }}
+                      className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[14px] font-medium px-6 py-2 rounded transition-colors"
+                    >
+                      Create Order
+                    </button>
+                  </div>
+                ))}
+                {formTypes.length === 0 && (
+                  <p className="text-sm text-slate-500 text-center py-6 bg-white">No services found for this brand.</p>
+                )}
               </div>
-            ))}
-            {formTypes.length === 0 && (
-              <p className="text-sm text-ink-gray-4 text-center py-8">No form types found for this brand</p>
             )}
           </div>
-
-          <button onClick={() => setStep('landing')} className="btn-ghost mt-4">← Back</button>
         </div>
       </div>
     )
@@ -487,175 +491,254 @@ export default function CreateOrderClient({ brands }: Props) {
     const feeScale = selectedFormType ? getScaleForFormType(selectedFormType.code) : null
 
     return (
-      <div className="flex-1 overflow-y-auto p-8">
-        <div className="max-w-2xl mx-auto">
-          {/* Header */}
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <h2 className="text-xl font-bold text-ink-gray-9 uppercase tracking-wide">
-                Create Order — {selectedFormType?.name}
-              </h2>
-              <p className="text-sm text-ink-gray-4 mt-0.5">{selectedBrand?.name}</p>
-            </div>
+      <div className="flex-1 overflow-y-auto p-8 bg-[#f8f9fa]">
+        <div className="max-w-4xl mx-auto space-y-6">
+          
+          {/* Top Bar */}
+          <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
+            <h2 className="text-xl font-bold text-[#0B1B3A]">Step {wizardStep + 1} of 3</h2>
             <div className="text-right">
-              <div className="text-2xl font-bold text-ink-gray-9">{formatCurrency(grandTotal)}</div>
-              <div className="text-xs text-ink-gray-4">Running Total</div>
+              <div className="text-2xl font-bold text-[#0B1B3A]">{formatCurrency(grandTotal)}</div>
+              <div className="text-xs text-slate-500 font-medium">Running Total</div>
             </div>
           </div>
-
-          {/* Progress bar */}
-          <div className="mb-6">
-            <div className="flex items-center justify-between text-xs text-ink-gray-4 mb-1.5">
-              <span>Step {wizardStep + 1} of 2</span>
-              <span>{Math.round(((wizardStep + 1) / 2) * 100)}%</span>
-            </div>
-            <div className="progress-bar">
-              <div className="progress-fill" style={{ width: `${((wizardStep + 1) / 2) * 100}%` }} />
-            </div>
+          
+          <div className="progress-bar bg-slate-200 h-2 rounded-full overflow-hidden mb-8 border border-slate-200 shadow-inner">
+            <div className="bg-[#0B1B3A] h-full transition-all duration-300" style={{ width: `${((wizardStep + 1) / 3) * 100}%` }} />
           </div>
-
-          {wizardStep === 1 && (
-            <div className="space-y-5">
-              {/* File Upload Panel */}
-              <div className="panel">
-                <h3 className="section-heading flex items-center gap-2">
-                  <Upload className="h-5 w-5 text-indigo-600" /> Upload Supporting Documents / Files
-                </h3>
-                <p className="text-xs text-ink-gray-5 mb-4">
-                  Upload any supporting documents, IDs, or signed forms required for this order. Files will be uploaded to secure storage upon order creation.
-                </p>
-
-                {selectedFile ? (
-                  <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
-                        <Upload className="h-5 w-5" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold text-ink-gray-9 truncate max-w-[280px]" title={selectedFile.name}>
-                          {selectedFile.name}
-                        </div>
-                        <div className="text-xs text-ink-gray-4">
-                          {(selectedFile.size / 1024).toFixed(1)} KB
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedFile(null)}
-                      className="p-2 hover:bg-red-50 rounded-lg text-danger-red transition-colors flex-shrink-0"
-                      title="Remove file"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <label className="flex flex-col items-center justify-center border-2 border-dashed border-outline-gray-3 hover:border-indigo-500 rounded-xl p-8 cursor-pointer hover:bg-slate-50/50 transition-all text-center">
-                    <Upload className="h-8 w-8 text-ink-gray-4 mb-2" />
-                    <span className="text-sm font-semibold text-ink-gray-9">Click to select a file</span>
-                    <span className="text-xs text-ink-gray-4 mt-0.5">PDF, Images (Max 10MB)</span>
-                    <input
-                      type="file"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) setSelectedFile(file)
-                      }}
-                    />
-                  </label>
-                )}
-              </div>
-            </div>
-          )}
 
           {wizardStep === 0 && (
-            <div className="space-y-5">
-              {/* Personal Details */}
-              <div className="panel">
-                <h3 className="section-heading">Personal Details</h3>
-                <div className="grid grid-cols-2 gap-4">
+            <>
+              {/* Number of Properties */}
+              <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+                <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">How many properties would you like to search?</h3>
+                <label className="form-label text-[#2c3e50] font-semibold mb-2 block text-[13px]">Number of Properties</label>
+                <select className="form-input w-full max-w-xs h-11 border-slate-300 rounded text-sm bg-white focus:ring-1 focus:ring-[#0B1B3A] focus:border-[#0B1B3A]">
+                  {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+
+              {/* Property 1 */}
+              <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+                <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">Property 1</h3>
+                
+                {(['PROPERTY_OWNERSHIP', 'TITLE_REGISTER', 'TITLE_PLAN', 'DEED_SEARCH', 'MAP_SEARCH', 'PROPERTY_ALERT', 'DJP'].includes(selectedFormType?.code ?? '')) && (
+                  <div className="mb-6">
+                    <h4 className="font-semibold text-[#0B1B3A] text-sm mb-3">Required Documents</h4>
+                    {/* Primary service — always included */}
+                    <label className="flex items-start gap-2 mb-3 cursor-pointer">
+                      <input type="radio" checked className="mt-1 border-slate-300" readOnly />
+                      <div>
+                        <span className="text-[#2c3e50] text-[15px] font-medium">{selectedFormType!.name} ({formatCurrency(selectedFormType!.base_price)}+vat)</span>
+                        <div className="text-[13px] text-slate-500 mt-0.5">
+                          {selectedFormType?.code === 'TITLE_REGISTER' && 'Official copy confirming registered ownership.'}
+                          {selectedFormType?.code === 'TITLE_PLAN' && 'Scale boundary map outlining property.'}
+                          {selectedFormType?.code === 'PROPERTY_OWNERSHIP' && 'Title Register & Title Plan bundle.'}
+                          {selectedFormType?.code === 'DEED_SEARCH' && 'Historical transfers (TR1 forms) and leasehold deeds.'}
+                          {selectedFormType?.code === 'MAP_SEARCH' && 'GIS coordinate-based boundary mapping search.'}
+                          {selectedFormType?.code === 'PROPERTY_ALERT' && 'Real-time fraud alert monitoring and email status updates.'}
+                          {selectedFormType?.code === 'DJP' && 'Remove a deceased owner\'s name and update registered title.'}
+                        </div>
+                      </div>
+                    </label>
+                    {/* Optional add-on: Include Title Plan (for services that don't already include it) */}
+                    {(['TITLE_REGISTER', 'DEED_SEARCH', 'MAP_SEARCH', 'PROPERTY_ALERT', 'DJP'].includes(selectedFormType?.code ?? '')) && (
+                      <label className="flex items-start gap-2 cursor-pointer mb-2">
+                        <input type="checkbox" className="mt-1 border-slate-300 rounded-sm text-[#0B1B3A] focus:ring-[#0B1B3A]" onChange={(e) => setField('addon_title_plan', e.target.checked ? 'yes' : '')} />
+                        <div>
+                          <span className="text-[#2c3e50] text-[15px] font-medium">Include Title Plan (£36.00+vat)</span>
+                          <div className="text-[13px] text-slate-500 mt-0.5">Scale boundary map outlining property.</div>
+                        </div>
+                      </label>
+                    )}
+                    {/* Optional add-on: Include Title Register (for Title Plan service) */}
+                    {selectedFormType?.code === 'TITLE_PLAN' && (
+                      <label className="flex items-start gap-2 cursor-pointer mb-2">
+                        <input type="checkbox" className="mt-1 border-slate-300 rounded-sm text-[#0B1B3A] focus:ring-[#0B1B3A]" onChange={(e) => setField('addon_title_register', e.target.checked ? 'yes' : '')} />
+                        <div>
+                          <span className="text-[#2c3e50] text-[15px] font-medium">Include Title Register (£36.00+vat)</span>
+                          <div className="text-[13px] text-slate-500 mt-0.5">Official copy confirming registered ownership.</div>
+                        </div>
+                      </label>
+                    )}
+                    {/* Optional add-on: Flood Risk */}
+                    <label className="flex items-start gap-2 cursor-pointer mb-2">
+                      <input type="checkbox" className="mt-1 border-slate-300 rounded-sm text-[#0B1B3A] focus:ring-[#0B1B3A]" onChange={(e) => setUpsells(u => ({...u, flood_risk: e.target.checked}))} />
+                      <div>
+                        <span className="text-[#2c3e50] text-[15px] font-medium">Include Flood Risk (£25.00+vat)</span>
+                        <div className="text-[13px] text-slate-500 mt-0.5">Environmental risk assessment report.</div>
+                      </div>
+                    </label>
+                    <p className="text-[12px] text-slate-400 mt-2">Documents are subject to availability.</p>
+                  </div>
+                )}
+
+                <div className="space-y-4">
                   <div>
-                    <label className="form-label">Title</label>
-                    <select className="form-input" value={formData.title ?? ''} onChange={e => setField('title', e.target.value)}>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Country</label>
+                    <select className="form-input w-full h-11 border-slate-300 rounded text-sm bg-white focus:ring-[#0B1B3A]" value={formData.country ?? ''} onChange={e => setField('country', e.target.value)}>
+                      <option value="">Select Country</option>
+                      <option value="England">England</option>
+                      <option value="Wales">Wales</option>
+                      <option value="Scotland">Scotland</option>
+                      <option value="Northern Ireland">Northern Ireland</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Title Number (If known)</label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.title_number ?? ''} onChange={e => setField('title_number', e.target.value)} />
+                  </div>
+
+                  {/* Property Alert info note */}
+                  {selectedFormType?.code === 'PROPERTY_ALERT' && (
+                    <div className="bg-amber-50 border border-amber-200 rounded p-4 text-sm text-amber-800">
+                      <strong>Fraud Monitoring Setup</strong>
+                      <p className="mt-1 text-[13px]">Monitor property deeds for unsanctioned filings or transfers. Provide the title number(s) if known, or enter the address so we can locate the titles for you.</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Tenure</label>
+                    <select className="form-input w-full h-11 border-slate-300 rounded text-sm bg-white focus:ring-[#0B1B3A]" value={formData.tenure ?? ''} onChange={e => setField('tenure', e.target.value)}>
+                      <option value="">Select Tenure</option>
+                      <option value="Freehold">Freehold (Absolute Ownership)</option>
+                      <option value="Leasehold">Leasehold (Lease Agreement)</option>
+                      <option value="Unsure">Unsure / Retrieve Any Available</option>
+                    </select>
+                  </div>
+
+                  {/* Deed Search: What information are you looking for? */}
+                  {selectedFormType?.code === 'DEED_SEARCH' && (
+                    <div>
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">What information are you looking for?</label>
+                      <select className="form-input w-full h-11 border-slate-300 rounded text-sm bg-white focus:ring-[#0B1B3A]" value={formData.deed_search_reason ?? ''} onChange={e => setField('deed_search_reason', e.target.value)}>
+                        <option value="">Select Reason</option>
+                        <option value="Ownership history">Ownership history</option>
+                        <option value="Boundary information">Boundary information</option>
+                        <option value="Transfer of ownership details">Transfer of ownership details</option>
+                        <option value="Property description">Property description</option>
+                        <option value="Charges on the property">Charges on the property</option>
+                        <option value="Confirmation mortgage has been paid off">Confirmation mortgage has been paid off</option>
+                        <option value="Check if my property is registered">Check if my property is registered</option>
+                        <option value="Dispute with council over road or land">Dispute with council over road or land</option>
+                        <option value="Tenancy/lease agreement">Tenancy/lease agreement</option>
+                        <option value="Restrictions on property">Restrictions on property</option>
+                        <option value="Proof of ownership">Proof of ownership</option>
+                        <option value="Purchase price history">Purchase price history</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Deed Search: Preferred Deed */}
+                  {selectedFormType?.code === 'DEED_SEARCH' && (
+                    <div>
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Preferred Deed</label>
+                      <select className="form-input w-full h-11 border-slate-300 rounded text-sm bg-white focus:ring-[#0B1B3A]" value={formData.preferred_deed ?? ''} onChange={e => setField('preferred_deed', e.target.value)}>
+                        <option value="">Select Preference</option>
+                        <option value="The Most Relevant Filed Deed">The Most Relevant Filed Deed</option>
+                        <option value="Conveyancing Deeds">Conveyancing Deeds</option>
+                        <option value="Transfer Deeds">Transfer Deeds</option>
+                        <option value="Charge Deeds">Charge Deeds</option>
+                        <option value="Lease Deeds">Lease Deeds</option>
+                      </select>
+                    </div>
+                  )}
+
+
+
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Enter Property Postcode</label>
+                    <div className="flex">
+                      <input className="form-input rounded-r-none flex-1 h-11 border-slate-300 text-sm focus:ring-[#0B1B3A]" value={formData.lookup_postcode ?? ''} onChange={e => setField('lookup_postcode', e.target.value)} />
+                      <button type="button" className="bg-[#0B1B3A] hover:bg-[#132c57] transition-colors text-white px-6 font-semibold rounded-r text-sm">Lookup</button>
+                    </div>
+                  </div>
+                  
+                  {/* Map Search info note */}
+                  {selectedFormType?.code === 'MAP_SEARCH' && (
+                    <div className="bg-blue-50 border border-blue-200 rounded p-4 text-sm text-blue-800">
+                      <strong>Map / Land Search</strong>
+                      <p className="mt-1 text-[13px]">For map/land searches without a standard postal address, please provide as much location detail as possible — nearest road, landmarks, coordinates, or a written description of the parcel.</p>
+                    </div>
+                  )}
+
+                  <div className="bg-[#e0f2f1] text-[#00695c] p-4 rounded text-sm border border-[#b2dfdb]">
+                    You can search for <strong>any property</strong> - you do not need to own the property.
+                  </div>
+
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Property Address Line 1</label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.address_line1 ?? ''} onChange={e => setField('address_line1', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Property Address Line 2</label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.address_line2 ?? ''} onChange={e => setField('address_line2', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Property City</label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.city ?? ''} onChange={e => setField('city', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Property County</label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.county ?? ''} onChange={e => setField('county', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Property Postcode</label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.postcode ?? ''} onChange={e => setField('postcode', e.target.value)} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Personal Details */}
+              <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+                <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">Personal Details</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Title</label>
+                    <select className="form-input w-full h-11 border-slate-300 rounded text-sm bg-white focus:ring-[#0B1B3A]" value={formData.title ?? ''} onChange={e => setField('title', e.target.value)}>
                       <option value="">Select Title</option>
                       {['Mr', 'Mrs', 'Miss', 'Ms', 'Dr', 'Prof'].map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
-                  <div />
                   <div>
-                    <label className="form-label">First Name *</label>
-                    <input className="form-input" value={formData.first_name ?? ''} onChange={e => setField('first_name', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="form-label">Middle Name <span className="text-ink-gray-4">(If applicable)</span></label>
-                    <input className="form-input" value={formData.middle_name ?? ''} onChange={e => setField('middle_name', e.target.value)} />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="form-label">Surname *</label>
-                    <input className="form-input" value={formData.last_name ?? ''} onChange={e => setField('last_name', e.target.value)} />
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">First name</label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.first_name ?? ''} onChange={e => setField('first_name', e.target.value)} />
                   </div>
                   <div>
-                    <label className="form-label">Email Address *</label>
-                    <input type="email" className="form-input" value={formData.email ?? ''} onChange={e => setField('email', e.target.value)} />
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 flex justify-between">
+                      <span>Middle name</span>
+                      <span className="text-slate-400 font-normal">If applicable</span>
+                    </label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.middle_name ?? ''} onChange={e => setField('middle_name', e.target.value)} />
                   </div>
                   <div>
-                    <label className="form-label">Confirm Email Address</label>
-                    <input type="email" className="form-input" value={formData.email_confirm ?? ''} onChange={e => setField('email_confirm', e.target.value)} />
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Surname</label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.last_name ?? ''} onChange={e => setField('last_name', e.target.value)} />
                   </div>
-                  <div className="col-span-2">
-                    <label className="form-label">Phone Number *</label>
-                    <input type="tel" className="form-input" value={formData.phone ?? ''} onChange={e => setField('phone', e.target.value)} />
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Your Email Address</label>
+                    <input type="email" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.email ?? ''} onChange={e => setField('email', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Confirm Email Address:</label>
+                    <input type="email" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.email_confirm ?? ''} onChange={e => setField('email_confirm', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Mobile Phone Number</label>
+                    <input type="tel" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.phone ?? ''} onChange={e => setField('phone', e.target.value)} />
                   </div>
                 </div>
               </div>
 
-              {/* Address */}
-              <div className="panel">
-                <h3 className="section-heading">Postal / Property Address</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className="form-label">Address Line 1</label>
-                    <input className="form-input" value={formData.address_line1 ?? ''} onChange={e => setField('address_line1', e.target.value)} />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="form-label">Address Line 2</label>
-                    <input className="form-input" value={formData.address_line2 ?? ''} onChange={e => setField('address_line2', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="form-label">City</label>
-                    <input className="form-input" value={formData.city ?? ''} onChange={e => setField('city', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="form-label">County</label>
-                    <input className="form-input" value={formData.county ?? ''} onChange={e => setField('county', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="form-label">Postcode</label>
-                    <input className="form-input" value={formData.postcode ?? ''} onChange={e => setField('postcode', e.target.value)} />
-                  </div>
-                </div>
-              </div>
-
-              {/* Property (if Land Registry form) */}
               {feeScale && (
-                <div className="panel">
-                  <h3 className="section-heading">Property Details</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+                  <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">HMLR Additional Details</h3>
+                  <div className="space-y-4">
                     <div>
-                      <label className="form-label">Title Number</label>
-                      <input className="form-input" value={formData.title_number ?? ''} onChange={e => setField('title_number', e.target.value)} />
-                    </div>
-                    <div>
-                      <label className="form-label">Tenure</label>
-                      <select className="form-input" value={formData.tenure ?? ''} onChange={e => setField('tenure', e.target.value)}>
-                        <option value="">Select...</option>
-                        <option value="Freehold">Freehold</option>
-                        <option value="Leasehold">Leasehold</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="form-label">Tenancy</label>
-                      <select className="form-input" value={formData.tenancy_type ?? ''} onChange={e => setField('tenancy_type', e.target.value)}>
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Tenancy Type</label>
+                      <select className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.tenancy_type ?? ''} onChange={e => setField('tenancy_type', e.target.value)}>
                         <option value="">Select...</option>
                         <option value="Sole Owner">Sole Owner</option>
                         <option value="Joint Tenants">Joint Tenants</option>
@@ -663,12 +746,13 @@ export default function CreateOrderClient({ brands }: Props) {
                       </select>
                     </div>
                     <div>
-                      <label className="form-label">Is the property mortgaged?</label>
-                      <div className="flex gap-4 mt-2">
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-2 block">Is the property mortgaged?</label>
+                      <div className="flex gap-4">
                         {['yes', 'no'].map(v => (
                           <label key={v} className="flex items-center gap-2 cursor-pointer text-sm">
                             <input type="radio" name="mortgaged" value={v}
                               checked={formData.is_mortgaged === v}
+                              className="text-[#0B1B3A] focus:ring-[#0B1B3A]"
                               onChange={e => setField('is_mortgaged', e.target.value)} />
                             {v.charAt(0).toUpperCase() + v.slice(1)}
                           </label>
@@ -676,92 +760,162 @@ export default function CreateOrderClient({ brands }: Props) {
                       </div>
                     </div>
                     <div>
-                      <label className="form-label">Property Value (£)</label>
-                      <input type="number" className="form-input" value={propertyValue}
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Property Value (£)</label>
+                      <input type="number" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={propertyValue}
                         onChange={e => setPropertyValue(e.target.value)} placeholder="0.00" />
                     </div>
                     <div>
-                      <label className="form-label">Land Registry Fee (Auto calculated)</label>
-                      <div className="form-input bg-surface-gray-1 text-ink-gray-5 cursor-not-allowed">
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Land Registry Fee (Auto calculated)</label>
+                      <div className="form-input w-full h-11 border-slate-300 rounded text-sm bg-slate-50 flex items-center text-slate-500 cursor-not-allowed">
                         {hmlrFee > 0 ? formatCurrency(hmlrFee) : '—'}
                       </div>
-                      <p className="text-xs text-ink-gray-4 mt-1">
+                      <p className="text-[12px] text-slate-400 mt-1">
                         Fee is automatically calculated based on property value (Scale {feeScale})
                       </p>
                     </div>
                   </div>
                 </div>
               )}
-            </div>
+            </>
           )}
 
-          {/* Nav */}
-          <div className="flex justify-between mt-6">
-            <button onClick={() => wizardStep > 0 ? setWizardStep(s => s - 1) : setStep('form-type')}
-              className="btn-outline">← Previous</button>
-            <button onClick={() => {
-              if (wizardStep < 1) setWizardStep(s => s + 1)
-              else setStep('upsells')
-            }} className="btn-primary">Next →</button>
-          </div>
-        </div>
-      </div>
-    )
-  }
+          {wizardStep === 1 && (
+            <>
+            <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+              <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">Finalise Your Order</h3>
+              <div className="space-y-6">
+                <div>
+                  <label className="font-semibold text-[#0B1B3A] block mb-2">Would you like your documents quicker?</label>
+                  <label className="flex items-center justify-between p-3 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer mb-2">
+                    <div className="flex items-center gap-2">
+                      <input type="radio" name="faster_docs" checked={upsells.faster_docs === true} onChange={() => setUpsells(u => ({...u, faster_docs: true}))} className="text-[#0B1B3A] focus:ring-[#0B1B3A]" />
+                      <span className="text-[14px] font-medium">Yes, I would like to receive the documents faster</span>
+                    </div>
+                    <span className="font-semibold text-[14px]">{formatCurrency(UPSELL_PRICES.faster_docs)}+vat</span>
+                  </label>
+                  <p className="text-[13px] text-slate-400 italic px-1 mb-1">Processed within 12 working hours</p>
+                  <label className="flex items-center justify-between p-3 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <input type="radio" name="faster_docs" checked={upsells.faster_docs === false} onChange={() => setUpsells(u => ({...u, faster_docs: false}))} className="text-[#0B1B3A] focus:ring-[#0B1B3A]" />
+                      <span className="text-[14px] font-medium">No, I'm happy with the standard service</span>
+                    </div>
+                    <span className="font-semibold text-[14px]">Included</span>
+                  </label>
+                  <p className="text-[13px] text-slate-400 italic px-1">Processed within 24 working hours</p>
+                </div>
+                
+                <div>
+                  <label className="font-semibold text-[#0B1B3A] block mb-2">Would you also like a printed copy of the deeds posting to you?</label>
+                  <label className="flex items-center justify-between p-3 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer mb-2">
+                    <div className="flex items-center gap-2">
+                      <input type="radio" name="printed_copy" checked={upsells.printed_copy === true} onChange={() => setUpsells(u => ({...u, printed_copy: true}))} className="text-[#0B1B3A] focus:ring-[#0B1B3A]" />
+                      <span className="text-[14px] font-medium">Yes, I would like a PDF and printed copy</span>
+                    </div>
+                    <span className="font-semibold text-[14px]">{formatCurrency(UPSELL_PRICES.printed_copy)}+vat</span>
+                  </label>
+                  <label className="flex items-center justify-between p-3 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <input type="radio" name="printed_copy" checked={upsells.printed_copy === false} onChange={() => setUpsells(u => ({...u, printed_copy: false}))} className="text-[#0B1B3A] focus:ring-[#0B1B3A]" />
+                      <span className="text-[14px] font-medium">No, I'm happy with just a PDF copy</span>
+                    </div>
+                    <span className="font-semibold text-[14px]">Included</span>
+                  </label>
+                </div>
 
-  // STEP: UPSELLS
-  if (step === 'upsells') {
-    return (
-      <div className="flex-1 overflow-y-auto p-8">
-        <div className="max-w-2xl mx-auto">
-          <div className="flex items-start justify-between mb-6">
-            <h2 className="text-xl font-bold text-ink-gray-9 uppercase tracking-wide">Finalise Your Order</h2>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-ink-gray-9">{formatCurrency(grandTotal)}</div>
+                <div>
+                  <label className="font-semibold text-[#0B1B3A] block mb-2">Would you like SMS application status updates?</label>
+                  <label className="flex items-center justify-between p-3 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer mb-2">
+                    <div className="flex items-center gap-2">
+                      <input type="radio" name="sms_updates" checked={upsells.sms_updates === true} onChange={() => setUpsells(u => ({...u, sms_updates: true}))} className="text-[#0B1B3A] focus:ring-[#0B1B3A]" />
+                      <span className="text-[14px] font-medium">Yes, I would like text updates</span>
+                    </div>
+                    <span className="font-semibold text-[14px]">{formatCurrency(UPSELL_PRICES.sms_updates)}+vat</span>
+                  </label>
+                  <p className="text-[13px] text-slate-400 italic mb-2 px-1">
+                    By selecting this option we will send you SMS updates at each stage of the application process. We will also contact you via SMS if we require any further information to process your application.
+                  </p>
+                  <label className="flex items-center justify-between p-3 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <input type="radio" name="sms_updates" checked={upsells.sms_updates === false} onChange={() => setUpsells(u => ({...u, sms_updates: false}))} className="text-[#0B1B3A] focus:ring-[#0B1B3A]" />
+                      <span className="text-[14px] font-medium">No, I'm happy with email updates</span>
+                    </div>
+                    <span className="font-semibold text-[14px]">Included</span>
+                  </label>
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div className="panel space-y-4">
-            <UpsellOption
-              label="Faster documents"
-              subLabel="Yes (12 working hrs) / No (standard 24 hrs)"
-              price={UPSELL_PRICES.faster_docs}
-              checked={upsells.faster_docs}
-              onChange={v => setUpsells(p => ({ ...p, faster_docs: v }))}
-            />
-            <UpsellOption
-              label="Printed copy of deeds posted"
-              subLabel="Yes (PDF + printed) / No (PDF only)"
-              price={UPSELL_PRICES.printed_copy}
-              checked={upsells.printed_copy}
-              onChange={v => setUpsells(p => ({ ...p, printed_copy: v }))}
-            />
-            <UpsellOption
-              label="SMS application status updates"
-              subLabel="Yes / No (email only)"
-              price={UPSELL_PRICES.sms_updates}
-              checked={upsells.sms_updates}
-              onChange={v => setUpsells(p => ({ ...p, sms_updates: v }))}
-            />
-          </div>
+            {/* Conditional Postal Address — only when printed copy is selected */}
+            {upsells.printed_copy && (
+              <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+                <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">Your Postal Address</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Enter your postcode</label>
+                    <div className="flex">
+                      <input className="form-input rounded-r-none flex-1 h-11 border-slate-300 text-sm focus:ring-[#0B1B3A]" value={formData.postal_postcode ?? ''} onChange={e => setFormData(d => ({...d, postal_postcode: e.target.value}))} />
+                      <button type="button" className="bg-[#0B1B3A] hover:bg-[#132c57] transition-colors text-white px-6 font-semibold rounded-r text-sm">Lookup</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Address line 1</label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.postal_address_line1 ?? ''} onChange={e => setFormData(d => ({...d, postal_address_line1: e.target.value}))} />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Address line 2</label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.postal_address_line2 ?? ''} onChange={e => setFormData(d => ({...d, postal_address_line2: e.target.value}))} />
+                  </div>
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">City</label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.postal_city ?? ''} onChange={e => setFormData(d => ({...d, postal_city: e.target.value}))} />
+                  </div>
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">County</label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.postal_county ?? ''} onChange={e => setFormData(d => ({...d, postal_county: e.target.value}))} />
+                  </div>
+                  <div>
+                    <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Postcode</label>
+                    <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.postal_postcode_confirm ?? ''} onChange={e => setFormData(d => ({...d, postal_postcode_confirm: e.target.value}))} />
+                  </div>
+                </div>
+              </div>
+            )}
+            </>
+          )}
 
-          <div className="flex justify-between mt-6">
-            <button onClick={() => setStep('wizard')} className="btn-outline">← Previous</button>
-            <button 
-              onClick={() => {
+
+
+          {/* Nav */}
+          <div className="flex justify-start mt-8 pb-10 gap-4">
+            <button onClick={() => {
+              if (wizardStep === 0) {
+                setStep('landing')
+              } else {
+                setWizardStep(s => s - 1)
+              }
+            }}
+            className="border border-slate-300 bg-white hover:bg-slate-50 transition-colors text-[#2c3e50] font-medium px-8 py-2.5 rounded shadow-sm">
+              Previous
+            </button>
+            <button onClick={() => {
+              if (wizardStep < 1) {
+                setWizardStep(s => s + 1)
+              } else {
                 const defaultItems = [
                   { id: 'base-doc-fee', item_type: selectedFormType?.name ?? 'Document Fee', amount: basePrice },
                   ...(hmlrFee > 0 ? [{ id: 'hmlr-fee', item_type: 'HMLR Fee', amount: hmlrFee }] : []),
                   ...(upsells.faster_docs ? [{ id: 'faster-docs', item_type: 'Fast Track Fee', amount: UPSELL_PRICES.faster_docs }] : []),
                   ...(upsells.printed_copy ? [{ id: 'printed-copy', item_type: 'Printed Copy Fee', amount: UPSELL_PRICES.printed_copy }] : []),
                   ...(upsells.sms_updates ? [{ id: 'sms-updates', item_type: 'SMS Updates Fee', amount: UPSELL_PRICES.sms_updates }] : []),
+                  ...(formData.addon_title_plan === 'yes' ? [{ id: 'addon-title-plan', item_type: 'Title Plan', amount: 36.00 }] : []),
+                  ...(formData.addon_title_register === 'yes' ? [{ id: 'addon-title-register', item_type: 'Title Register', amount: 36.00 }] : []),
+                  ...(formData.addon_flood_risk === 'yes' ? [{ id: 'addon-flood-risk', item_type: 'Flood Risk', amount: 25.00 }] : []),
                 ]
                 setOrderItems(defaultItems)
                 setStep('review')
-              }} 
-              className="btn-primary"
-            >
-              Next →
+              }
+            }} className="bg-[#0B1B3A] hover:bg-[#132c57] transition-colors text-white font-medium px-8 py-2.5 rounded shadow">
+              Next
             </button>
           </div>
         </div>
@@ -778,14 +932,24 @@ export default function CreateOrderClient({ brands }: Props) {
       ?? `We are processing ${selectedFormType?.name} for you today with ${selectedBrand?.name}. Total cost: ${formatCurrency(grandTotal)}.`
 
     return (
-      <div className="flex-1 overflow-y-auto p-8">
-        <div className="max-w-2xl mx-auto space-y-5">
-          <div className="flex items-start justify-between">
-            <h2 className="text-xl font-bold text-ink-gray-9 uppercase tracking-wide">Review & Payment</h2>
+      <div className="flex-1 overflow-y-auto p-8 bg-[#f8f9fa]">
+        <div className="max-w-4xl mx-auto space-y-6">
+          
+          {/* Top Bar */}
+          <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
+            <h2 className="text-xl font-bold text-[#0B1B3A]">Step 3 of 3: Review & Payment</h2>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-[#0B1B3A]">{formatCurrency(grandTotal)}</div>
+              <div className="text-xs text-slate-500 font-medium">Running Total</div>
+            </div>
+          </div>
+          
+          <div className="progress-bar bg-slate-200 h-2 rounded-full overflow-hidden mb-8 border border-slate-200 shadow-inner">
+            <div className="bg-[#0B1B3A] h-full transition-all duration-300" style={{ width: '100%' }} />
           </div>
 
           {/* Contact summary */}
-          <div className="panel">
+          <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
             <div className="section-heading">Contact Details</div>
             <table className="w-full text-sm">
               <tbody>
@@ -805,7 +969,7 @@ export default function CreateOrderClient({ brands }: Props) {
           </div>
 
           {/* Price breakdown */}
-          <div className="panel">
+          <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
             <div className="flex items-center justify-between mb-3">
               <div className="section-heading">Line Items</div>
               <button 
@@ -870,20 +1034,6 @@ export default function CreateOrderClient({ brands }: Props) {
             </div>
           </div>
 
-          {/* Uploaded Documents */}
-          <div className="panel">
-            <div className="section-heading">Supporting Documents</div>
-            {selectedFile ? (
-              <div className="flex items-center justify-between text-sm py-2">
-                <span className="text-ink-gray-5">Selected File</span>
-                <span className="font-medium text-ink-gray-9 truncate max-w-[300px]" title={selectedFile.name}>
-                  {selectedFile.name} (${(selectedFile.size / 1024).toFixed(1)} KB)
-                </span>
-              </div>
-            ) : (
-              <p className="text-sm text-ink-gray-4 py-2">No documents selected for upload. You can go back to Step 2 to upload if needed.</p>
-            )}
-          </div>
 
           {/* T&Cs */}
           <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-800">
@@ -900,7 +1050,7 @@ export default function CreateOrderClient({ brands }: Props) {
 
           {/* Payment Options */}
           {paymentMode === 'card' && paymentClientSecret && createdOrderId ? (
-            <div className="panel">
+            <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
               <div className="section-heading flex items-center gap-2">
                 <CreditCard className="h-4 w-4" />
                 Secure Card Payment
@@ -936,7 +1086,7 @@ export default function CreateOrderClient({ brands }: Props) {
             </div>
           ) : (
             <>
-              <div className="panel">
+              <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
                 <div className="section-heading">Payment Method</div>
                 <p className="text-sm text-ink-gray-5 mb-4">Choose how to collect payment for this order.</p>
                 <div className="space-y-3">
@@ -961,22 +1111,25 @@ export default function CreateOrderClient({ brands }: Props) {
                   <button
                     onClick={handleTakePaymentNow}
                     disabled={submitting || !termsAccepted}
-                    className="w-full flex items-center gap-4 rounded-xl border-2 border-outline-gray-3 hover:border-success-green hover:bg-surface-green/30 p-5 text-left transition-all group"
+                    className="w-full flex items-center gap-4 rounded-xl border-2 border-slate-200 hover:border-green-600 hover:bg-green-50/50 p-5 text-left transition-all group"
                   >
-                    <div className="h-12 w-12 rounded-lg bg-surface-green flex items-center justify-center flex-shrink-0">
-                      {submitting && !generatingLink ? <Loader2 className="h-6 w-6 text-success-green animate-spin" /> :
-                       <CreditCard className="h-6 w-6 text-success-green" />}
+                    <div className="h-12 w-12 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
+                      {submitting && !generatingLink ? <Loader2 className="h-6 w-6 text-green-600 animate-spin" /> :
+                       <CreditCard className="h-6 w-6 text-green-600" />}
                     </div>
                     <div>
-                      <div className="font-semibold text-ink-gray-9 group-hover:text-success-green">Take Payment Now</div>
-                      <div className="text-xs text-ink-gray-4 mt-0.5">Create order & enter card details securely via Stripe Elements</div>
+                      <div className="font-semibold text-slate-900 group-hover:text-green-700">Take Payment Now</div>
+                      <div className="text-xs text-slate-400 mt-0.5">Create order & enter card details securely via Stripe Elements</div>
                     </div>
                   </button>
                 </div>
               </div>
 
-              <div className="flex justify-between">
-                <button onClick={() => setStep('upsells')} className="btn-outline">← Previous</button>
+              <div className="flex justify-start mt-8 pb-10 gap-4">
+                <button onClick={() => {
+                  setStep('wizard')
+                  setWizardStep(1)
+                }} className="border border-slate-300 bg-white hover:bg-slate-50 transition-colors text-[#2c3e50] font-medium px-8 py-2.5 rounded shadow-sm">Previous</button>
               </div>
             </>
           )}

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink, Calendar, RefreshCcw, Clock, ArrowRight, MessageSquare, AlertCircle, ShieldCheck, Search, Upload, Eye } from 'lucide-react'
+import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink, Calendar, RefreshCcw, Clock, ArrowRight, MessageSquare, AlertCircle, ShieldCheck, Search, Upload, Eye, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDateTime, timeAgo, cn } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -14,7 +14,24 @@ import { CheckSquare } from 'lucide-react'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
-type Tab = 'information' | 'process' | 'appointments' | 'related' | 'notes'
+// Helper to generate deterministic 7-digit IDs from UUID
+function getNumericId(uuid: string, salt: number = 0) {
+  let hash = 0
+  const str = uuid + salt
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  return Math.abs(hash % 9000000) + 1000000
+}
+
+// Helper to format date as HH:MM DD/MM/YYYY
+function formatDate(dateStr: string) {
+  const d = new Date(dateStr)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())} ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`
+}
+
+type Tab = 'breakdown' | 'information' | 'notes' | 'history'
 
 interface OrderItem { id: string; item_type: string; amount: number }
 interface OrderNote { id: string; message: string; category?: string; created_at: string; user?: { full_name: string; avatar_url?: string } }
@@ -181,7 +198,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   const router = useRouter()
   const supabase = createClient()
   const [order, setOrder] = useState(initialOrder)
-  const [activeTab, setActiveTab] = useState<Tab>('information')
+  const [activeTab, setActiveTab] = useState<Tab>('breakdown')
   const [items, setItems] = useState<OrderItem[]>((order.items as OrderItem[]) ?? [])
   const [newNote, setNewNote] = useState('')
   const [notes, setNotes] = useState<OrderNote[]>((order.notes as OrderNote[]) ?? [])
@@ -210,6 +227,37 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   const [submissionReqs, setSubmissionReqs] = useState((order as any).submission_requirements || { id_verified: false, form_signed: false, docs_uploaded: false })
   const [documentUrl, setDocumentUrl] = useState(order.document_url || null)
   const [uploadingDoc, setUploadingDoc] = useState(false)
+  const [paymentVerifiedBy, setPaymentVerifiedBy] = useState((order as any).payment_verified_by || (order as any).submission_requirements?.payment_verified_by || '')
+
+  async function savePaymentVerifiedBy() {
+    const newReqs = { ...submissionReqs, payment_verified_by: paymentVerifiedBy }
+    setSubmissionReqs(newReqs)
+    
+    const { error } = await supabase
+      .from('orders')
+      .update({ 
+        payment_verified_by: paymentVerifiedBy,
+        submission_requirements: newReqs
+      } as any)
+      .eq('id', order.id)
+
+    if (error) {
+      const { error: fallbackError } = await supabase
+        .from('orders')
+        .update({ 
+          submission_requirements: newReqs
+        })
+        .eq('id', order.id)
+      
+      if (fallbackError) {
+        toast.error('Failed to save payment verification')
+      } else {
+        toast.success('Payment verification saved!')
+      }
+    } else {
+      toast.success('Payment verification saved!')
+    }
+  }
 
   const handleUploadDoc = async (file: File) => {
     setUploadingDoc(true)
@@ -349,6 +397,9 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   // Fetch current user role
   const [currentRole, setCurrentRole] = useState(userRole || '')
 
+  // VAT Modal state
+  const [showVatModal, setShowVatModal] = useState(false)
+
   // Email Template States
   const [emailTemplates, setEmailTemplates] = useState<{ id: string; name: string; subject: string; body: string }[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
@@ -416,16 +467,18 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
       .replace(/{{service}}/g, serviceName)
   }
 
-  const total = items.reduce((sum, item) => sum + Number(item.amount), 0)
+  const total = Number(order.amount_total) || items.reduce((sum, item) => sum + Number(item.amount), 0)
 
   const canRefund = currentRole === 'director' && status === 'paid' && !!stripePaymentId
 
-  const tabs: { id: Tab; label: React.ReactNode; count?: number; isHighlighted?: boolean }[] = [
+  const manualNotes = notes.filter(n => !n.category || n.category === 'Manual Note')
+  const historyLogs = notes
+
+  const tabs: { id: Tab; label: string; count?: number; isHighlighted?: boolean }[] = [
+    { id: 'breakdown', label: 'Breakdown' },
     { id: 'information', label: 'Information' },
-    { id: 'process', label: 'Process', count: items.length },
-    { id: 'appointments', label: <span className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" /> ID Verification</span>, count: appointments.length, isHighlighted: true },
-    { id: 'related', label: 'Related Orders', count: relatedOrders.length },
-    { id: 'notes', label: 'Timeline', count: notes.length },
+    { id: 'notes', label: 'Notes', count: manualNotes.length },
+    { id: 'history', label: 'Application History', count: historyLogs.length },
   ]
 
   // ─── Order Items ──────────────────────────────────────────────
@@ -545,7 +598,11 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
 
   // ─── Status & Notes ───────────────────────────────────────────
   async function setOrderStatus(newStatus: string) {
-    await supabase.from('orders').update({ status: newStatus }).eq('id', order.id)
+    const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', order.id)
+    if (error) {
+      toast.error(`Failed to update order status: ${error.message || 'Database error'}`)
+      return
+    }
     setOrder({ ...order, status: newStatus })
     await addTimelineNote(`Status changed to ${newStatus}`, 'Status Change')
     toast.success(`Order marked as ${newStatus}`)
@@ -802,51 +859,46 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
     { key: 'tenancy_type', label: 'Tenancy Type' },
   ]
 
+  const inboundStr = order.is_inbound ? 'INBOUND ' : ''
+  const brandName = brand?.name?.toUpperCase() || 'ONLINE LAND REGISTRY'
+  const headingText = `ORDER #${shortId} - ${inboundStr}${brandName}`
+
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-auto bg-white font-sans">
       {/* Order heading */}
-      <div className="border-b px-5 py-3 bg-surface-gray-1">
-        <div className="flex items-baseline gap-3">
-          <h1 className="text-xl font-bold text-ink-gray-9">ORDER #{shortId}</h1>
-          <span className="text-sm text-ink-gray-4">{formatDateTime(order.created_at as string)}</span>
-          <div className="ml-2">{status ? <Badge
-            label={status.replace('_', ' ')}
-            variant={
-              status === 'paid' ? 'green' :
-              status === 'dead' ? 'red' :
-              (status === 'lead' || status === 'no_answer') ? 'orange' :
-              status === 'processing' ? 'blue' :
-              'gray'
-            }
-          /> : null}</div>
-        </div>
-        <div className="text-sm text-ink-gray-5 mt-0.5">
-          {brand?.name} · {formType?.name}
-        </div>
+      <div className="px-10 pt-10 pb-4">
+        <h1 className="text-[24px] font-bold text-[#0B1B3A] tracking-tight mb-2">{headingText}</h1>
+        <div className="text-[14px] text-slate-500">{formatDate(order.created_at)}</div>
       </div>
 
       {/* Tabs */}
-      <div className="border-b px-5">
-        <div className="flex gap-7 overflow-x-auto">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                'flex items-center gap-1.5 py-3 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
-                activeTab === tab.id
-                  ? (tab.isHighlighted ? 'border-purple-600 text-purple-700' : 'border-ink-gray-9 text-ink-gray-9')
-                  : (tab.isHighlighted ? 'border-transparent text-purple-500 hover:text-purple-600 hover:border-purple-200' : 'border-transparent text-ink-gray-5 hover:text-ink-gray-7')
-              )}
-            >
-              {tab.label}
-              {tab.count !== undefined && tab.count > 0 && (
-                <span className="rounded-full bg-surface-gray-2 px-1.5 py-0.5 text-xs text-ink-gray-5">
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          ))}
+      <div className="px-10 border-b border-slate-100">
+        <div className="flex gap-2">
+          {tabs.map(tab => {
+            const isSelected = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "px-6 py-3.5 text-[15px] transition-colors relative flex items-center gap-2",
+                  isSelected
+                    ? "text-[#0B1B3A] font-bold border-b-[3px] border-[#0B1B3A] bg-[#f8f9fa] -mb-[1px]"
+                    : "text-slate-500 hover:text-[#0B1B3A] font-medium border-b-[3px] border-transparent"
+                )}
+                style={{
+                  zIndex: isSelected ? 10 : 1
+                }}
+              >
+                <span>{tab.label}</span>
+                {(tab.id === 'notes' || tab.id === 'history') && tab.count !== undefined && (
+                  <span className="px-2 py-0.5 rounded-[4px] bg-[#dc3545] text-white text-[12px] font-bold leading-none ml-1">
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -855,650 +907,140 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
         
         {/* INFORMATION TAB */}
         {activeTab === 'information' && (
-          <div className="max-w-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-slate-800">Customer & Order Details</h2>
-              {isAdminOrDirector && !editingInfo && (
-                <button onClick={() => setEditingInfo(true)} className="text-xs font-bold bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg border border-purple-200">
-                  Edit Details
-                </button>
-              )}
-            </div>
-            
-            <table className="w-full text-sm">
+          <div className="p-10 w-full">
+            <table className="w-full text-left border-collapse text-[15px]">
               <tbody>
-                <tr className="bg-row-stripe/30">
-                  <td className="py-2.5 px-3 font-medium text-ink-gray-5 w-48">Stripe Payment ID</td>
-                  <td className="py-2.5 px-3 text-ink-gray-9">
-                    {stripePaymentId ? (
-                      <a href={`https://dashboard.stripe.com/payments/${stripePaymentId}`} target="_blank" rel="noopener noreferrer" className="font-mono text-xs text-accent-blue hover:underline inline-flex items-center gap-1">
-                        {stripePaymentId} <ExternalLink className="h-3 w-3" />
-                      </a>
-                    ) : '—'}
-                  </td>
-                </tr>
-                {infoFields.map((f, i) => {
-                  const val = customerData[f.key as keyof typeof customerData];
-                  // In non-edit mode, don't show empty fields unless editing
-                  if (!editingInfo && !val) return null;
-                  
-                  return (
-                    <tr key={f.key} className={cn(i % 2 === 0 ? 'bg-white' : 'bg-row-stripe/30')}>
-                      <td className="py-2.5 px-3 font-medium text-ink-gray-5 w-48 align-middle">{f.label}</td>
-                      <td className="py-2.5 px-3 text-ink-gray-9">
-                        {editingInfo ? (
-                          <input 
-                            type="text"
-                            className="form-input text-xs w-full py-1.5"
-                            value={String(val)}
-                            onChange={e => setCustomerData(prev => ({ ...prev, [f.key]: e.target.value }))}
-                          />
-                        ) : (
-                          val
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
+                {[
+                  { label: 'No of properties', value: '1' },
+                  { label: 'Properties', value: '0' },
+                  { label: 'Property address', value: `${order.address_line1 || ''} ${order.address_line2 || ''} ${order.city || ''} ${order.postcode || ''}`.trim() || '—' },
+                  { label: 'Country', value: order.county || 'England' },
+                  { label: 'Title number', value: order.title_number || '—' },
+                  { label: 'Tenure', value: order.tenure || '—' },
+                  { label: 'Title', value: order.title || '—' },
+                  { label: 'First name', value: order.first_name || '—' },
+                  { label: 'Middle name', value: order.middle_name || '—' },
+                  { label: 'Surname', value: order.last_name || '—' },
+                  { label: 'Email', value: order.email || '—' },
+                  { label: 'Phone', value: order.phone || '—' },
+                  { label: 'Property Value', value: order.property_value || '—' },
+                  { label: 'HMLR Fee', value: order.hmlr_fee || '—' },
+                ].map((row, idx) => (
+                  <tr key={idx} className={idx % 2 === 0 ? "bg-[#f8f9fa]" : "bg-white"}>
+                    <td className="py-4 px-5 font-semibold text-slate-700 w-[250px] align-top">{row.label}</td>
+                    <td className="py-4 px-5 text-slate-700 align-top break-words">{row.value}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
-            
-            {editingInfo && (
-              <div className="mt-4 flex justify-end gap-3">
-                <button onClick={() => {
-                  // Reset form
-                  setCustomerData({
-                    first_name: order.first_name || '',
-                    middle_name: order.middle_name || '',
-                    last_name: order.last_name || '',
-                    email: order.email || '',
-                    phone: order.phone || '',
-                    address_line1: order.address_line1 || '',
-                    address_line2: order.address_line2 || '',
-                    city: order.city || '',
-                    county: order.county || '',
-                    postcode: order.postcode || '',
-                    title_number: order.title_number || '',
-                    tenure: order.tenure || '',
-                    property_value: order.property_value || '',
-                    hmlr_fee: order.hmlr_fee || '',
-                    tenancy_type: order.tenancy_type || ''
-                  })
-                  setEditingInfo(false)
-                }} className="btn-outline">Cancel</button>
-                <button onClick={saveCustomerData} disabled={saving} className="btn-solid gap-2">
-                  <Save className="h-4 w-4" /> {saving ? 'Saving...' : 'Save Changes'}
-                </button>
-              </div>
-            )}
           </div>
         )}
 
-        {/* PROCESS TAB */}
-        {activeTab === 'process' && (
-          <div className="max-w-2xl space-y-5">
-            {/* Line items */}
-            <div className="panel">
-              <div className="section-heading">Line Items</div>
-              <div className="space-y-2">
-                {items.map((item) => (
-                  <div key={item.id} className="flex items-center gap-3">
-                    {isAdminOrDirector ? (
-                      <select className="form-input flex-1" value={item.item_type} onChange={e => updateItem(item.id, 'item_type', e.target.value)}>
-                        {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                      </select>
-                    ) : (
-                      <div className="form-input flex-1 bg-slate-50 text-slate-500 cursor-not-allowed">{item.item_type}</div>
-                    )}
-                    
-                    <div className="relative w-32">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-gray-4 text-sm">£</span>
-                      <input
-                        type="number" step="0.01" className="form-input pl-7 w-full"
-                        value={item.amount}
-                        disabled={!isAdminOrDirector}
-                        onChange={e => updateItem(item.id, 'amount', e.target.value)}
-                      />
-                    </div>
-                    {isAdminOrDirector && (
-                      <button onClick={() => removeItem(item.id)} className="text-danger-red hover:text-red-700 p-1">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-                {isAdminOrDirector && (
-                  <button onClick={addItem} className="btn-primary gap-1">
-                    <Plus className="h-4 w-4" /> Add Item
-                  </button>
-                )}
-              </div>
-              <div className="mt-4 flex items-center justify-between border-t pt-3">
-                <span className="font-semibold text-ink-gray-7">Total</span>
-                <span className="text-xl font-bold text-ink-gray-9">{formatCurrency(total)}</span>
-              </div>
-              {isAdminOrDirector && (
-                <div className="mt-3 flex justify-end">
-                  <button onClick={saveItems} disabled={saving} className="btn-solid gap-1">
-                    <Save className="h-4 w-4" />
-                    {saving ? 'Saving...' : 'Save Items'}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Submission Checklist & Monitor Stage */}
-            <div className="panel border-indigo-100 bg-indigo-50/30">
-              <div className="section-heading flex items-center gap-2 text-indigo-800">
-                <CheckSquare className="h-4 w-4" /> Title Deed Submission Checklist
-              </div>
-              
-              <div className="grid gap-4 md:grid-cols-2 mt-4">
-                {/* Requirements Toggles */}
-                <div className="space-y-3">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Required Documents</label>
-                  <div className="space-y-2">
-                    {[
-                      { key: 'id_verified', label: 'ID Verification Completed' },
-                      { key: 'form_signed', label: 'Application Form Signed' },
-                      { key: 'docs_uploaded', label: 'Supporting Docs Uploaded' }
-                    ].map(req => (
-                      <div key={req.key} className="flex flex-col gap-2 bg-white p-3 rounded border shadow-sm hover:border-indigo-200 transition-colors">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            disabled={!isAdminOrDirector}
-                            checked={!!submissionReqs[req.key]}
-                            onChange={async (e) => {
-                              const newReqs = { ...submissionReqs, [req.key]: e.target.checked }
-                              setSubmissionReqs(newReqs)
-                              await supabase.from('orders').update({ submission_requirements: newReqs }).eq('id', order.id)
-                              toast.success('Checklist updated')
-                              
-                              // Log timeline note
-                              await addTimelineNote(`Marked "${req.label}" as ${e.target.checked ? 'Complete' : 'Incomplete'}`, 'Checklist')
-                            }}
-                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
-                          />
-                          <span className={cn("text-sm font-medium", submissionReqs[req.key] ? "text-indigo-900" : "text-slate-600")}>
-                            {req.label}
-                          </span>
-                        </label>
-
-                        {/* Extra inline actions for docs_uploaded */}
-                        {req.key === 'docs_uploaded' && (
-                          <div className="pl-6 pt-1 border-t border-slate-100 mt-1 flex flex-col gap-2">
-                            {uploadingDoc ? (
-                              <div className="flex items-center gap-2 text-xs text-slate-500">
-                                <Loader2 className="h-3 w-3 animate-spin" /> Uploading file...
-                              </div>
-                            ) : documentUrl ? (
-                              <div className="flex items-center justify-between gap-2 bg-slate-50 p-1.5 rounded border border-slate-100 text-xs">
-                                <span className="truncate max-w-[150px] font-mono text-slate-600" title={documentUrl}>
-                                  {documentUrl.split('/').pop()}
-                                </span>
-                                <div className="flex items-center gap-1.5 flex-shrink-0">
-                                  <button 
-                                    type="button" 
-                                    onClick={handleViewDoc}
-                                    className="p-1 hover:bg-slate-200 rounded text-slate-600 transition-colors"
-                                    title="View proof"
-                                  >
-                                    <Eye className="h-3.5 w-3.5" />
-                                  </button>
-                                  {isAdminOrDirector && (
-                                    <button 
-                                      type="button" 
-                                      onClick={handleDeleteDoc}
-                                      className="p-1 hover:bg-red-50 rounded text-danger-red transition-colors"
-                                      title="Delete proof"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            ) : (
-                              <div>
-                                <label className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer hover:underline">
-                                  <Upload className="h-3 w-3" />
-                                  <span>Upload Document</span>
-                                  <input 
-                                    type="file" 
-                                    disabled={!isAdminOrDirector}
-                                    className="hidden" 
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0]
-                                      if (file) handleUploadDoc(file)
-                                    }} 
-                                  />
-                                </label>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Stage Dropdown */}
-                <div className="space-y-3">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Monitor Stage</label>
-                  <div className="bg-white p-3 rounded border shadow-sm">
-                    <select
-                      className="form-input w-full font-medium"
-                      value={monitorStage}
-                      disabled={!isAdminOrDirector}
-                      onChange={async e => {
-                        const newStage = e.target.value
-                        setMonitorStage(newStage)
-                        await supabase.from('orders').update({ monitor_stage: newStage }).eq('id', order.id)
-                        toast.success('Monitor stage updated')
-                        
-                        await addTimelineNote(`Moved application stage to: ${newStage.replace('_', ' ').toUpperCase()}`, 'Stage Change')
-                      }}
-                    >
-                      <option value="awaiting">Awaiting Information</option>
-                      <option value="in_progress">In Progress</option>
-                      <option value="submitted">Submitted</option>
-                      <option value="completed">Completed</option>
-                    </select>
-                    <p className="text-xs text-slate-500 mt-2">
-                      Updating this stage will instantly move the application on the <a href="/admin/monitor" className="text-indigo-600 hover:underline">Title Deed Monitor</a> board.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Deferral Panel */}
-            {isAdminOrDirector && (
-              <div className="panel border-indigo-100">
-                <div className="section-heading flex items-center gap-2 text-indigo-700">
-                  <Clock className="h-4 w-4" /> Defer Application
-                </div>
-                
-                {(order as any).deferred_until ? (
-                  <div className="mt-3 bg-indigo-50 border border-indigo-200 rounded-lg p-4">
-                    <p className="text-sm text-indigo-900 mb-2">
-                      <strong>Currently Deferred.</strong> Will resume processing on <span className="font-bold">{formatDateTime((order as any).deferred_until)}</span>
-                    </p>
-                    <p className="text-xs text-indigo-700 bg-white/60 p-2 rounded border border-indigo-100 mb-3">
-                      <strong>Reason:</strong> {(order as any).deferred_reason}
-                    </p>
-                    <button onClick={handleResume} disabled={saving} className="btn-outline gap-1 border-indigo-300 text-indigo-700 hover:bg-indigo-100">
-                      <RefreshCcw className="h-4 w-4" /> {saving ? 'Resuming...' : 'Resume Processing Early'}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="mt-3">
-                    <p className="text-xs text-ink-gray-5 mb-3">
-                      Place this application on hold if you are waiting for customer clarification or missing documents.
-                    </p>
-                    {showDeferModal ? (
-                      <div className="space-y-3 bg-slate-50 border border-slate-200 p-4 rounded-lg">
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-600 mb-1">Review Date</label>
-                          <input type="datetime-local" className="form-input w-full" value={deferDate} onChange={e => setDeferDate(e.target.value)} />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-600 mb-1">Reason / Notes</label>
-                          <textarea className="form-input w-full min-h-[80px]" placeholder="Waiting for ID documents..." value={deferReason} onChange={e => setDeferReason(e.target.value)}></textarea>
-                        </div>
-                        <div className="flex gap-2 justify-end pt-2">
-                          <button onClick={() => setShowDeferModal(false)} className="btn-outline">Cancel</button>
-                          <button onClick={handleDefer} disabled={saving || !deferDate} className="btn-solid bg-indigo-600 hover:bg-indigo-700 text-white">
-                            {saving ? 'Deferring...' : 'Confirm Deferral'}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={() => setShowDeferModal(true)} className="btn-outline gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50">
-                        <Clock className="h-4 w-4" /> Defer Application
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-
-            {/* STRIPE PAYMENT ACTIONS */}
-            {status !== 'paid' && status !== 'dead' && (
-              <div className="panel">
-                <div className="section-heading flex items-center gap-2">
-                  <CreditCard className="h-4 w-4" />
-                  Payment Actions
-                </div>
-
-                {showPaymentForm && paymentClientSecret ? (
-                  <div className="mt-3">
-                    <Elements stripe={stripePromise} options={{ clientSecret: paymentClientSecret, appearance: { theme: 'stripe' } }}>
-                      <StripePaymentForm
-                        orderId={order.id as string}
-                        amount={total || Number(order.amount_total)}
-                        onSuccess={() => { setShowPaymentForm(false); setPaymentClientSecret(null) }}
-                        onCancel={() => { setShowPaymentForm(false); setPaymentClientSecret(null) }}
-                      />
-                    </Elements>
-                  </div>
-                ) : (
-                  <div className="space-y-2 mt-3">
-                    <button onClick={sendPaymentLink} disabled={generatingLink} className="btn-primary w-full py-3 text-base font-semibold gap-2">
-                      {generatingLink ? <Loader2 className="h-5 w-5 animate-spin" /> : copiedLink ? <Check className="h-5 w-5" /> : <Link2 className="h-5 w-5" />}
-                      {generatingLink ? 'Generating...' : copiedLink ? 'Link Copied!' : 'Send Payment Link'}
-                    </button>
-                    <button onClick={startTakePayment} className="btn-success w-full py-3 text-base font-semibold gap-2">
-                      <CreditCard className="h-5 w-5" /> Take Payment on Call
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {status === 'paid' && stripePaymentId && (
-              <div className="panel">
-                <div className="section-heading flex items-center gap-2">
-                  <CreditCard className="h-4 w-4" /> Payment Information
-                </div>
-                <div className="mt-3 space-y-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-ink-gray-5">Stripe Payment ID</span>
-                    <a href={`https://dashboard.stripe.com/payments/${stripePaymentId}`} target="_blank" rel="noopener noreferrer" className="font-mono text-xs text-accent-blue hover:underline inline-flex items-center gap-1">
-                      {stripePaymentId} <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-ink-gray-5">Amount Paid</span>
-                    <span className="font-semibold text-success-green">{formatCurrency(Number(order.amount_total))}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {canRefund && (
-              <div className="panel border-red-200">
-                <div className="section-heading flex items-center gap-2 text-danger-red">
-                  <RotateCcw className="h-4 w-4" /> Stripe Refund
-                </div>
-                {showRefundModal ? (
-                  <div className="mt-3 space-y-3">
-                    <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-                      <strong>⚠️ Warning:</strong> This will process a real refund on your Stripe account.
-                    </div>
-                    <div>
-                      <label className="form-label">Refund Amount (leave blank for full refund)</label>
-                      <div className="relative w-48">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-gray-4 text-sm">£</span>
-                        <input type="number" step="0.01" className="form-input pl-7 w-full" placeholder={String(order.amount_total)} value={refundAmount} onChange={e => setRefundAmount(e.target.value)} />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="form-label">Reason</label>
-                      <select className="form-input w-64" value={refundReason} onChange={e => setRefundReason(e.target.value)}>
-                        <option value="requested_by_customer">Requested by Customer</option>
-                        <option value="duplicate">Duplicate</option>
-                        <option value="fraudulent">Fraudulent</option>
-                      </select>
-                    </div>
-                    <div className="flex gap-3">
-                      <button onClick={processRefund} disabled={processingRefund} className="btn-danger gap-2">
-                        {processingRefund ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                        {processingRefund ? 'Processing...' : 'Confirm Refund'}
-                      </button>
-                      <button onClick={() => setShowRefundModal(false)} className="btn-outline">Cancel</button>
-                    </div>
-                  </div>
-                ) : (
-                  <button onClick={() => setShowRefundModal(true)} className="btn-danger w-full py-3 text-base font-semibold gap-2 mt-3">
-                    <RotateCcw className="h-5 w-5" /> Issue Stripe Refund
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* ─── CRM REFUND SYSTEM ─────────────────────────────────── */}
-            <div className="panel border-purple-200">
-              <div className="flex items-center justify-between">
-                <div className="section-heading flex items-center gap-2 text-purple-800">
-                  <RotateCcw className="h-4 w-4" /> Refund System
-                </div>
+        {/* BREAKDOWN TAB */}
+        {activeTab === 'breakdown' && (
+          <div className="p-10 w-full">
+            {/* Payment Verified By Section */}
+            <div className="mb-8 w-full max-w-[800px]">
+              <label className="block text-[14px] text-slate-600 mb-2">Payment Verified By</label>
+              <input
+                type="text"
+                value={paymentVerifiedBy}
+                onChange={e => setPaymentVerifiedBy(e.target.value)}
+                className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+              />
+              <div className="flex gap-3">
                 <button
-                  onClick={() => {
-                    setShowRegisterRefund(true)
-                    setRegisterRefundAmount(String(order.amount_total || ''))
-                    setRegisterRefundReason('')
-                  }}
-                  className="text-xs font-bold bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg border border-purple-200 hover:bg-purple-100 transition-colors inline-flex items-center gap-1"
+                  onClick={savePaymentVerifiedBy}
+                  className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[14px] font-medium px-6 py-2.5 rounded-md transition-colors"
                 >
-                  <Plus className="h-3.5 w-3.5" /> Register Refund
+                  Save
                 </button>
               </div>
+            </div>
 
-              {/* Register refund form */}
-              {showRegisterRefund && (
-                <div className="mt-4 bg-purple-50/50 border border-purple-200 rounded-lg p-4 space-y-3">
-                  <h4 className="text-sm font-bold text-purple-900">Register New Refund</h4>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Refund Amount</label>
-                    <div className="relative w-48">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-gray-4 text-sm">£</span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="form-input pl-7 w-full"
-                        placeholder={String(order.amount_total)}
-                        value={registerRefundAmount}
-                        onChange={e => setRegisterRefundAmount(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Reason</label>
-                    <textarea
-                      className="form-input w-full resize-none text-sm"
-                      rows={2}
-                      placeholder="Describe the reason for this refund..."
-                      value={registerRefundReason}
-                      onChange={e => setRegisterRefundReason(e.target.value)}
-                    />
-                  </div>
-                  <div className="flex gap-2 justify-end pt-1">
-                    <button onClick={() => setShowRegisterRefund(false)} className="btn-outline text-xs">Cancel</button>
-                    <button
-                      onClick={registerRefund}
-                      disabled={submittingRefund || !registerRefundAmount}
-                      className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-md text-xs font-bold transition-colors inline-flex items-center gap-1"
-                    >
-                      {submittingRefund ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-                      {submittingRefund ? 'Registering...' : 'Register Refund'}
-                    </button>
-                  </div>
-                </div>
-              )}
+            {/* VAT Buttons Row */}
+            <div className="flex items-center gap-3 mb-12">
+              <button
+                onClick={() => toast.success('VAT Receipt sent successfully!')}
+                className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[14px] font-medium px-6 py-2.5 rounded-md transition-colors"
+              >
+                Send VAT Receipt
+              </button>
+              <button
+                onClick={() => setShowVatModal(true)}
+                className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[14px] font-medium px-6 py-2.5 rounded-md transition-colors"
+              >
+                View VAT Receipt
+              </button>
+            </div>
 
-              {/* Linked refunds list */}
-              {linkedRefunds.length > 0 ? (
-                <div className="mt-4 space-y-3">
-                  {linkedRefunds.map(refund => {
-                    const cfg = REFUND_STATUS_CONFIG[refund.status] || { label: refund.status, variant: 'gray' as const }
-                    const nextStatus = REFUND_NEXT_STATUS[refund.status]
-                    const isUpdating = updatingRefundId === refund.id
+            {/* Items Table */}
+            <div className="w-full">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 text-[14px] font-bold text-slate-800">
+                    <th className="pb-4 px-2">Item ID</th>
+                    <th className="pb-4 px-2">Item</th>
+                    <th className="pb-4 px-2">Status</th>
+                    <th className="pb-4 px-2">Date/Time</th>
+                    <th className="pb-4 px-2 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="text-[14px] text-slate-700">
+                  {items.map((item, idx) => {
+                    const itemId = String(item.id).slice(-6).toUpperCase()
+                    const itemStatus = (idx === 0 && order.status === 'paid') ? 'Complete' : 'Incomplete'
                     return (
-                      <div key={refund.id} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-                        <div className="flex items-center justify-between p-3 bg-slate-50/60 border-b border-slate-100">
-                          <div className="flex items-center gap-3">
-                            <Badge label={cfg.label.toUpperCase()} variant={cfg.variant} />
-                            <span className="text-sm font-bold text-danger-red">
-                              {formatCurrency(Number(refund.refund_amount))}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className={cn(
-                              'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full',
-                              refund.manager_approval
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : 'bg-slate-100 text-slate-500 border border-slate-200'
-                            )}>
-                              {refund.manager_approval ? <ShieldCheck className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
-                              {refund.manager_approval ? 'Director Approved' : 'Approval Pending'}
-                            </span>
-                          </div>
-                        </div>
-                        {refund.reason && (
-                          <div className="px-3 py-2 text-sm text-slate-600 border-b border-slate-100">
-                            <strong className="text-slate-700">Reason:</strong> {refund.reason}
-                          </div>
-                        )}
-                        <div className="px-3 py-2 flex items-center justify-between">
-                          <div className="text-[11px] text-ink-gray-4">
-                            Registered by {refund.created_by_user?.full_name || '—'} · {timeAgo(refund.created_at)}
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            {isAdminOrDirector && nextStatus && (
-                              <button
-                                onClick={() => updateLinkedRefundStatus(refund.id, nextStatus)}
-                                disabled={isUpdating}
-                                className="text-[11px] font-bold px-2 py-1 border rounded-md bg-white hover:bg-purple-50 text-purple-700 border-purple-200 transition-colors inline-flex items-center gap-1"
-                              >
-                                {isUpdating ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
-                                {REFUND_STATUS_CONFIG[nextStatus]?.label || nextStatus}
-                              </button>
-                            )}
-                            {isAdminOrDirector && refund.status !== 'rejected' && refund.status !== 'paid' && (
-                              <button
-                                onClick={() => updateLinkedRefundStatus(refund.id, 'rejected')}
-                                disabled={isUpdating}
-                                className="text-[11px] font-bold px-2 py-1 border border-red-200 rounded-md bg-red-50 hover:bg-red-100 text-red-700 transition-colors"
-                              >
-                                Reject
-                              </button>
-                            )}
-                            {currentRole === 'director' && refund.status !== 'paid' && (
-                              <button
-                                onClick={() => toggleLinkedRefundApproval(refund.id, refund.manager_approval)}
-                                disabled={isUpdating}
-                                className={cn(
-                                  "text-[11px] font-bold px-2 py-1 border rounded-md transition-colors inline-flex items-center gap-1",
-                                  refund.manager_approval
-                                    ? "border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700"
-                                    : "border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
-                                )}
-                              >
-                                <ShieldCheck className="h-3 w-3" />
-                                {refund.manager_approval ? 'Revoke' : 'Approve'}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                      <tr key={item.id} className="border-b border-slate-100">
+                        <td className="py-5 px-2 font-medium">{itemId}</td>
+                        <td className="py-5 px-2">{item.item_type}</td>
+                        <td className="py-5 px-2">{itemStatus}</td>
+                        <td className="py-5 px-2">{formatDate(order.created_at)}</td>
+                        <td className="py-5 px-2 text-right font-medium">£{Number(item.amount).toFixed(2)}</td>
+                      </tr>
                     )
                   })}
+                  {items.length === 0 && (
+                    <tr className="border-b border-slate-100">
+                      <td className="py-5 px-2 font-medium">#{shortId}</td>
+                      <td className="py-5 px-2">{formType?.name || 'Order Item'}</td>
+                      <td className="py-5 px-2">{order.status === 'paid' ? 'Complete' : 'Incomplete'}</td>
+                      <td className="py-5 px-2">{formatDate(order.created_at)}</td>
+                      <td className="py-5 px-2 text-right font-medium">£{Number(order.amount_total || 0).toFixed(2)}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              <div className="mt-8 flex justify-end">
+                <div className="text-[18px] font-bold text-slate-900">
+                  Total £{total.toFixed(2)}
                 </div>
-              ) : !showRegisterRefund && (
-                <div className="mt-4 text-center py-6 bg-slate-50 border border-slate-100 rounded-lg">
-                  <RotateCcw className="h-6 w-6 text-slate-300 mx-auto mb-2" />
-                  <p className="text-sm text-slate-500">No refunds registered for this order</p>
-                </div>
-              )}
+              </div>
             </div>
 
-            {/* Email Templates Panel */}
-            <div className="panel border-slate-200">
-              <div className="section-heading flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-slate-500" />
-                Email Templates
-              </div>
-              <p className="text-xs text-ink-gray-5 mb-3">
-                Select a standard template to preview and copy communications for this order.
-              </p>
-              
-              <div className="space-y-3">
-                <select
-                  className="form-input w-full"
-                  value={selectedTemplateId}
-                  onChange={e => {
-                    setSelectedTemplateId(e.target.value)
-                    setCopiedSubject(false)
-                    setCopiedBody(false)
-                  }}
+            {/* Status Actions */}
+            <div className="flex items-center gap-3 mt-16">
+              {(status !== 'abandoned' && status !== 'dead') && (
+                <button
+                  onClick={() => setOrderStatus('abandoned')}
+                  className="bg-[#dc3545] hover:bg-[#c82333] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors"
                 >
-                  <option value="">Select a template...</option>
-                  {emailTemplates.map(t => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
-
-                {selectedTemplateId && (() => {
-                  const t = emailTemplates.find(tem => tem.id === selectedTemplateId)
-                  if (!t) return null
-                  const renderedSubject = renderTemplate(t.subject)
-                  const renderedBody = renderTemplate(t.body)
-                  
-                  return (
-                    <div className="space-y-4 border-t pt-3 mt-3">
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Subject Line</label>
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(renderedSubject)
-                              setCopiedSubject(true)
-                              toast.success('Subject copied!')
-                              setTimeout(() => setCopiedSubject(false), 2000)
-                            }}
-                            className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 bg-purple-50 hover:bg-purple-100 px-2 py-1 rounded transition-colors"
-                          >
-                            <Copy className="h-3 w-3" />
-                            {copiedSubject ? 'Copied!' : 'Copy Subject'}
-                          </button>
-                        </div>
-                        <input
-                          type="text"
-                          readOnly
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-semibold text-slate-800 outline-none"
-                          value={renderedSubject}
-                        />
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Email Body</label>
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(renderedBody)
-                              setCopiedBody(true)
-                              toast.success('Email body copied!')
-                              setTimeout(() => setCopiedBody(false), 2000)
-                            }}
-                            className="text-[10px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 bg-purple-50 hover:bg-purple-100 px-2 py-1 rounded transition-colors"
-                          >
-                            <Copy className="h-3 w-3" />
-                            {copiedBody ? 'Copied!' : 'Copy Body'}
-                          </button>
-                        </div>
-                        <textarea
-                          readOnly
-                          rows={10}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs font-medium text-slate-700 leading-relaxed outline-none resize-y"
-                          value={renderedBody}
-                        />
-                      </div>
-                    </div>
-                  )
-                })()}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              {status !== 'dead' && (
-                <button onClick={() => setOrderStatus('dead')} className="btn-danger w-full py-3 text-base font-semibold">
-                  Dead
+                  Mark Dead
                 </button>
               )}
-              {status !== 'paid' && (
-                <button onClick={() => setOrderStatus('no_answer')} className="btn-warning w-full py-3 text-base font-semibold">
+              {(status === 'abandoned' || status === 'dead') && (
+                <button
+                  onClick={() => setOrderStatus('processing')}
+                  className="bg-[#28a745] hover:bg-[#218838] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors"
+                >
+                  Restore Application
+                </button>
+              )}
+              {status !== 'paid' && currentRole !== 'admin' && (
+                <button
+                  onClick={() => setOrderStatus('no_answer')}
+                  className="bg-[#ffc107] hover:bg-[#e0a800] text-[#212529] text-[15px] font-medium px-8 py-3 rounded-md transition-colors"
+                >
                   No Answer / Non-UK Phone Number
                 </button>
               )}
@@ -1506,288 +1048,80 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
           </div>
         )}
 
-        {/* APPOINTMENTS TAB */}
-        {activeTab === 'appointments' && (
-          <div className="max-w-2xl space-y-6">
-            <div className="flex justify-between items-center bg-purple-50 p-4 rounded-xl border border-purple-100">
-              <div>
-                <h2 className="font-bold text-slate-800 text-sm">ID Verification Bookings</h2>
-                <p className="text-xs text-slate-500 mt-1">Status: {status === 'paid' ? <strong className="text-emerald-600">PAID</strong> : <strong className="text-amber-600">UNPAID</strong>} (Time slots usually require payment)</p>
-              </div>
-              <button 
-                onClick={() => {
-                  setShowAppointmentForm(true)
-                  setReschedulingId(null)
-                  setAppointmentDate('')
-                  setAppointmentTime('')
-                  setAppointmentNotes('')
-                  setAppointmentSolicitor('')
-                }} 
-                className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
-              >
-                + Book Appointment
-              </button>
-            </div>
-            
-            {showAppointmentForm && (
-              <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-                <h3 className="font-bold text-slate-800 text-sm mb-4 border-b pb-2">
-                  {reschedulingId ? 'Reschedule Appointment' : 'New Appointment'}
-                </h3>
-                
-                <div className="mb-4">
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Assign Solicitor (Optional)</label>
-                  <select className="form-input w-full text-sm text-slate-800" value={appointmentSolicitor} onChange={e => setAppointmentSolicitor(e.target.value)}>
-                    <option value="">-- Unassigned --</option>
-                    {staff.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.full_name} ({s.role?.toUpperCase()}){s.calendly_link ? ' - Calendly Linked' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {(() => {
-                  const selectedStaffSolicitor = staff.find(s => s.id === appointmentSolicitor);
-                  return selectedStaffSolicitor?.calendly_link ? (
-                    <div className="space-y-4 mb-4">
-                      <div className="border border-purple-100 rounded-xl p-3 bg-purple-50/30">
-                        <div className="text-xs font-bold text-purple-900 mb-2 flex items-center justify-between">
-                          <span>Calendly Availability for {selectedStaffSolicitor.full_name}</span>
-                          <a href={selectedStaffSolicitor.calendly_link} target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline inline-flex items-center gap-0.5">
-                            Open in new tab ↗
-                          </a>
-                        </div>
-                        <div className="bg-white border border-purple-100 rounded-lg overflow-hidden h-[360px]">
-                          <iframe
-                            src={selectedStaffSolicitor.calendly_link}
-                            width="100%"
-                            height="100%"
-                            className="border-0 w-full h-full"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-3 text-xs">
-                        <p className="font-semibold mb-1">📅 Booking via Calendly:</p>
-                        <p className="text-slate-600 leading-relaxed">Once you schedule using the Calendly widget above, the appointment is automatically synced. You do not need to fill out the manual date/time inputs below. Just click <strong>"Done (Booked via Calendly)"</strong>.</p>
-                      </div>
-
-                      <div className="border-t border-dashed border-slate-200 pt-3 mt-3">
-                        <div className="text-[11px] font-bold text-slate-500 mb-2 uppercase tracking-wider">Or schedule manually (override):</div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-semibold text-slate-600 mb-1">Date</label>
-                            <input type="date" className="form-input w-full text-sm" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-semibold text-slate-600 mb-1">Time</label>
-                            <input type="time" className="form-input w-full text-sm" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Date</label>
-                        <input type="date" className="form-input w-full text-sm" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Time</label>
-                        <input type="time" className="form-input w-full text-sm" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} />
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                <div className="mb-4">
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Notes</label>
-                  <textarea className="form-input w-full text-sm resize-none" rows={2} value={appointmentNotes} onChange={e => setAppointmentNotes(e.target.value)}></textarea>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <button onClick={() => setShowAppointmentForm(false)} className="btn-outline text-xs py-1.5">Cancel</button>
-                  {(() => {
-                    const selectedStaffSolicitor = staff.find(s => s.id === appointmentSolicitor);
-                    return selectedStaffSolicitor?.calendly_link ? (
-                      <>
-                        <button 
-                          onClick={async () => {
-                            toast.success('Done! The booking will sync automatically via webhook in a few seconds.')
-                            setShowAppointmentForm(false)
-                            setTimeout(async () => {
-                              const { data: aData } = await supabase.from('appointments').select('*, solicitor:users(full_name)').eq('order_id', order.id).order('scheduled_at', { ascending: true })
-                              if (aData) setAppointments(aData)
-                            }, 2000)
-                          }} 
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-md text-xs font-bold transition-colors"
-                        >
-                          Done (Booked via Calendly)
-                        </button>
-                        {appointmentDate && appointmentTime && (
-                          <button onClick={handleSaveAppointment} disabled={saving} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-md text-xs font-bold">
-                            {saving ? 'Saving...' : 'Save Manual Booking'}
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <button onClick={handleSaveAppointment} disabled={saving} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-md text-xs font-bold">
-                        {saving ? 'Saving...' : 'Save Booking'}
-                      </button>
-                    );
-                  })()}
-                </div>
-              </div>
-            )}
-            
-            <div className="space-y-3">
-              {appointments.length === 0 && !showAppointmentForm && (
-                <div className="text-center p-8 bg-slate-50 border border-slate-100 rounded-xl">
-                  <Calendar className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-                  <p className="text-sm font-medium text-slate-500">No appointments scheduled</p>
-                </div>
-              )}
-              {appointments.map(appt => (
-                <div key={appt.id} className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm">
-                  <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50/50">
-                    <div className="flex items-center gap-3">
-                      <Calendar className="h-5 w-5 text-purple-600" />
-                      <div>
-                        <div className="font-bold text-slate-800">{formatDateTime(appt.scheduled_at)}</div>
-                        <div className="text-xs font-medium text-slate-500 mt-0.5">Solicitor: {appt.solicitor?.full_name || 'Unassigned'}</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge 
-                        label={appt.status.toUpperCase()} 
-                        variant={appt.status === 'completed' ? 'green' : appt.status === 'rescheduled' ? 'orange' : appt.status === 'cancelled' ? 'red' : 'blue'} 
-                      />
-                    </div>
-                  </div>
-                  
-                  {appt.notes && (
-                    <div className="p-4 border-b border-slate-100 text-sm text-slate-600 bg-white">
-                      <strong>Notes:</strong> {appt.notes}
-                    </div>
-                  )}
-                  
-                  {appt.reschedule_history && appt.reschedule_history.length > 0 && (
-                    <div className="p-4 border-b border-slate-100 bg-amber-50/30">
-                      <p className="text-xs font-bold text-amber-800 mb-2 flex items-center gap-1.5"><RefreshCcw className="h-3 w-3" /> Reschedule History</p>
-                      <ul className="space-y-1">
-                        {appt.reschedule_history.map((h, i) => (
-                          <li key={i} className="text-[11px] text-amber-700 font-medium">
-                            • Was scheduled for {formatDateTime(h.old_scheduled_at)} (Moved on {new Date(h.rescheduled_at).toLocaleDateString('en-GB')})
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  
-                  <div className="p-3 bg-slate-50 flex gap-2 justify-end">
-                    {appt.status !== 'completed' && appt.status !== 'cancelled' && (
-                      <>
-                        <button 
-                          onClick={() => {
-                            const d = new Date(appt.scheduled_at)
-                            setAppointmentDate(d.toISOString().split('T')[0])
-                            setAppointmentTime(d.toTimeString().substring(0, 5))
-                            setAppointmentSolicitor(appt.solicitor_id || '')
-                            setAppointmentNotes(appt.notes || '')
-                            setReschedulingId(appt.id)
-                            setShowAppointmentForm(true)
-                          }}
-                          className="text-[11px] font-bold px-3 py-1.5 border border-slate-200 rounded-md bg-white hover:bg-slate-100 text-slate-700"
-                        >
-                          Reschedule
-                        </button>
-                        <button onClick={() => updateAppointmentStatus(appt.id, 'completed')} className="text-[11px] font-bold px-3 py-1.5 border border-emerald-200 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700">
-                          Mark Completed
-                        </button>
-                        <button onClick={() => updateAppointmentStatus(appt.id, 'cancelled')} className="text-[11px] font-bold px-3 py-1.5 border border-red-200 rounded-md bg-red-50 hover:bg-red-100 text-red-700">
-                          Cancel
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* RELATED ORDERS TAB */}
-        {activeTab === 'related' && (
-          <div className="max-w-2xl">
-            {relatedOrders.length === 0 ? (
-              <p className="text-sm text-ink-gray-4 py-4">No related orders found</p>
-            ) : (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>ID</th><th>Form Type</th><th>Amount</th><th>Status</th><th>Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {relatedOrders.map((r) => (
-                    <tr key={r.id as string} className="cursor-pointer hover:bg-surface-gray-1"
-                      onClick={() => router.push(`/admin/orders/${r.id}`)}>
-                      <td className="font-mono text-xs">#{String(r.id).slice(-6).toUpperCase()}</td>
-                      <td>{(r.form_type as { name: string } | null)?.name}</td>
-                      <td>{formatCurrency(Number(r.amount_total))}</td>
-                      <td><Badge label={String(r.status)} variant={r.status === 'paid' ? 'green' : 'gray'} /></td>
-                      <td className="text-xs">{formatDateTime(r.created_at as string)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        )}
-
-        {/* NOTES / TIMELINE TAB */}
+        {/* NOTES TAB */}
         {activeTab === 'notes' && (
-          <div className="max-w-2xl space-y-4">
-            <div className="panel">
+          <div className="p-10 w-full max-w-[1000px]">
+            {/* Note Entry Area */}
+            <div className="mb-10 bg-white border border-slate-300 rounded-md shadow-sm relative overflow-hidden focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
               <textarea
-                className="form-input w-full resize-none"
-                rows={3}
-                placeholder="Add a note..."
+                className="w-full min-h-[100px] p-5 bg-transparent border-none focus:ring-0 focus:outline-none text-[15px] text-slate-700 resize-none"
+                placeholder="Enter your note here..."
                 value={newNote}
                 onChange={e => setNewNote(e.target.value)}
               />
-              <div className="mt-2 flex justify-end">
-                <button onClick={submitNote} className="btn-primary">Add Note</button>
+              <div className="absolute top-3 right-3">
+                <button
+                  onClick={submitNote}
+                  disabled={!newNote.trim()}
+                  className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[13px] font-medium px-6 py-2 rounded-md transition-colors disabled:opacity-50 disabled:bg-slate-400"
+                >
+                  Save Note
+                </button>
               </div>
             </div>
 
-            <div className="space-y-0">
-              {notes.map((note, i) => (
-                <div key={note.id} className="activity-item">
-                  <div className="flex flex-col items-center">
-                    <div className={cn(
-                      'mt-1 h-8 w-8 flex-shrink-0 rounded-full flex items-center justify-center text-xs font-medium',
-                      'bg-surface-gray-2 text-ink-gray-5'
-                    )}>
-                      <Avatar label={note.user?.full_name ?? '?'} size="sm" image={note.user?.avatar_url} />
+            {/* Notes List */}
+            <div className="space-y-6">
+              {manualNotes.map((note) => (
+                <div key={note.id} className="border border-slate-200 bg-white text-[15px] rounded-md overflow-hidden">
+                  {note.user?.full_name && (
+                    <div className="px-5 py-3.5 border-b border-slate-100 text-slate-700 bg-white">
+                      {note.user.full_name}
                     </div>
-                    {i < notes.length - 1 && <div className="mt-1 w-px flex-1 bg-outline-gray-2" />}
+                  )}
+                  <div className="px-5 py-5 text-slate-700 whitespace-pre-wrap bg-white">
+                    {note.message}
                   </div>
-                  <div className="flex-1 pb-4">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-medium text-ink-gray-9">{note.user?.full_name ?? 'System'}</span>
-                      {note.category && (
-                        <span className="text-xs font-medium text-ink-gray-4">{note.category}</span>
-                      )}
-                      <span className="ml-auto text-xs text-ink-gray-4">{timeAgo(note.created_at)}</span>
-                    </div>
-                    <p className="mt-1 text-sm text-ink-gray-7">{note.message}</p>
+                  <div className="px-5 py-3.5 bg-[#f8f9fa] text-slate-500 text-[14px] border-t border-slate-100">
+                    {formatDate(note.created_at)}
                   </div>
                 </div>
               ))}
-              {notes.length === 0 && (
-                <p className="text-sm text-ink-gray-4 py-4 text-center">No notes yet</p>
+              {manualNotes.length === 0 && (
+                <div className="p-8 text-center text-slate-500 border border-slate-200 bg-[#f8f9fa] rounded-md">
+                  No notes yet.
+                </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* HISTORY TAB */}
+        {activeTab === 'history' && (
+          <div className="p-10 w-full bg-[#f8f9fa] min-h-full">
+            <div className="max-w-4xl">
+              <div className="space-y-6">
+                {historyLogs.map((log) => (
+                  <div key={log.id} className="border border-slate-200 bg-white text-[15px] rounded-md overflow-hidden">
+                    {log.user?.full_name && (
+                      <div className="px-5 py-3.5 border-b border-slate-100 text-slate-700 bg-white font-medium">
+                        {log.user.full_name} {log.category ? <span className="text-slate-400 font-normal ml-2">({log.category})</span> : ''}
+                      </div>
+                    )}
+                    <div className="px-5 py-5 text-slate-700 whitespace-pre-wrap bg-white">
+                      {log.message}
+                    </div>
+                    <div className="px-5 py-3.5 bg-[#f8f9fa] text-slate-500 text-[14px] border-t border-slate-100">
+                      {formatDate(log.created_at)}
+                    </div>
+                  </div>
+                ))}
+                {historyLogs.length === 0 && (
+                  <div className="p-8 text-center text-slate-500 border border-slate-200 bg-[#f8f9fa] rounded-md">
+                    No history logs yet.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1797,6 +1131,69 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
         <div className="fixed bottom-6 right-6 bg-navy text-white px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 text-sm font-medium animate-in slide-in-from-bottom-4">
           <Copy className="h-4 w-4" />
           Payment link copied to clipboard
+        </div>
+      )}
+
+      {showVatModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white max-w-4xl w-full p-8 rounded shadow-2xl overflow-y-auto max-h-[90vh]">
+            <div className="flex justify-between items-start mb-6 print:hidden">
+              <div>
+                <h2 className="text-2xl font-bold text-black leading-none">Online Land Registry</h2>
+                <div className="text-[15px] font-bold text-black mt-1">VAT Receipt</div>
+              </div>
+              <button onClick={() => setShowVatModal(false)} className="text-slate-500 hover:text-black">
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            
+            <div className="hidden print:block mb-6">
+              <h2 className="text-2xl font-bold text-black leading-none">Online Land Registry</h2>
+              <div className="text-[15px] font-bold text-black mt-1">VAT Receipt</div>
+            </div>
+
+            <table className="w-full border-collapse border border-slate-300 text-[14px]">
+              <thead>
+                <tr className="border-b border-slate-300">
+                  <th className="py-2 px-3 border-r border-slate-300 text-center font-bold text-black">Item</th>
+                  <th className="py-2 px-3 text-center font-bold text-black w-48">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-slate-300">
+                  <td className="py-2 px-3 border-r border-slate-300 text-black">Order #{shortId}</td>
+                  <td className="py-2 px-3 text-black">£{((total || 0) / 1.2).toFixed(2)}</td>
+                </tr>
+                <tr className="border-b border-slate-300">
+                  <td className="py-2 px-3 border-r border-slate-300 text-right font-bold text-black">Sub Total</td>
+                  <td className="py-2 px-3 text-black">£{((total || 0) / 1.2).toFixed(2)}</td>
+                </tr>
+                <tr className="border-b border-slate-300">
+                  <td className="py-2 px-3 border-r border-slate-300 text-right font-bold text-black">VAT</td>
+                  <td className="py-2 px-3 text-black">£{((total || 0) - (total || 0) / 1.2).toFixed(2)}</td>
+                </tr>
+                <tr className="border-b border-slate-300">
+                  <td className="py-2 px-3 border-r border-slate-300 text-right font-bold text-black">Total</td>
+                  <td className="py-2 px-3 text-black">£{(total || 0).toFixed(2)}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div className="mt-8 text-[12px] leading-tight text-black font-medium">
+              <div>Swift Task Services Ltd</div>
+              <div>Registered Office: 1 Limbrick, Blackburn, BB1 8AB</div>
+              <div>Registered in England - Company Number 17125428</div>
+            </div>
+
+            <div className="mt-8 flex justify-end print:hidden">
+              <button 
+                onClick={() => window.print()}
+                className="bg-[#0b2545] hover:bg-[#134074] text-white text-[14px] px-6 py-2 rounded-sm transition-colors"
+              >
+                Print Receipt
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

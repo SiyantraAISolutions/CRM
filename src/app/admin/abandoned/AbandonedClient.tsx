@@ -26,7 +26,7 @@ export default function AbandonedClient({ brands }: { brands: Brand[] }) {
     setLoading(true)
     let q = supabase.from('orders')
       .select('*, brand:brands(id,code,name), form_type:form_types(id,name)', { count: 'exact' })
-      .eq('status', 'abandoned')
+      .in('status', ['abandoned', 'dead'])
       .order('created_at', { ascending: false })
       .range((page - 1) * 10, page * 10 - 1)
 

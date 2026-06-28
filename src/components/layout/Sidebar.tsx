@@ -32,7 +32,6 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
   const [collapsed, setCollapsed] = useState(false)
   const [counts, setCounts] = useState(badgeCounts ?? { tickets: 0, helpRequests: 0, abandoned: 0, notifications: 0, refunds: 0 })
   const [services, setServices] = useState<{ id: string; name: string; code: string }[]>([])
-  const [servicesExpanded, setServicesExpanded] = useState(false)
   const [emailTemplates, setEmailTemplates] = useState<{ id: string; name: string }[]>([])
   const [templatesExpanded, setTemplatesExpanded] = useState(false)
   const [ordersExpanded, setOrdersExpanded] = useState(false)
@@ -120,12 +119,12 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
   }
 
   const navItems: NavItem[] = [
-    { label: 'All Our Services', href: '/admin', icon: LayoutDashboard },
+    { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
     { label: 'Process Panel', href: '/admin/process', icon: Layers },
     { label: 'Deed Monitor', href: '/admin/monitor', icon: Activity },
     { label: 'Tickets', href: '/admin/tickets', icon: Ticket, badge: counts.tickets },
     { label: 'Orders', href: '/admin/orders', icon: ShoppingCart },
-    { label: 'Enquiries', href: '/admin/enquiries', icon: MessageSquare },
+    { label: 'Conveyancing Call enquiry', href: '/admin/enquiries', icon: MessageSquare },
     { label: 'Create Order', href: '/admin/create-order', icon: Plus },
     { label: 'ID Verifications', href: '/admin/appointments', icon: Calendar },
     { label: 'Help Requests', href: '/admin/help-requests', icon: HelpCircle, badge: counts.helpRequests },
@@ -135,7 +134,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
     { label: 'Refunds', href: '/admin/refunds', icon: RotateCcw, badge: counts.refunds },
     { label: 'Team', href: '/admin/team', icon: Users, roles: ['director'] },
     { label: 'Director Portal', href: '/admin/director', icon: PieChart, roles: ['director'] },
-    { label: 'Blogs', href: '/admin/blogs', icon: BookOpen, roles: ['admin', 'director'] },
+    { label: 'Blogs', href: '/admin/blogs', icon: BookOpen, roles: ['director'] },
     { label: 'Settings', href: '/admin/settings', icon: Settings, roles: ['director'] },
   ]
 
@@ -164,7 +163,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
     <div
       className={cn(
         'relative flex h-full flex-col bg-white border-r border-purple-100 transition-all duration-300 ease-in-out shadow-sm',
-        collapsed ? 'w-14' : 'w-[220px]'
+        collapsed ? 'w-14' : 'w-[260px]'
       )}
     >
       {/* Subtle Glow */}
@@ -172,14 +171,14 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
 
       {/* Logo */}
       <div className={cn(
-        'flex items-center border-b border-purple-100 h-[60px] relative z-10',
+        'flex items-center border-b border-purple-100 h-[90px] relative z-10',
         collapsed ? 'justify-center px-2' : 'px-4'
       )}>
         {collapsed
-          ? <img src="/kws_logo.jpeg" alt="K" className="h-8 w-auto rounded object-contain" />
+          ? <img src="/kws-removebg-preview.png" alt="K" className="h-[40px] w-auto object-contain" />
           : (
-            <div className="flex items-center w-full">
-              <img src="/kws_logo.jpeg" alt="KWS Logo" className="h-10 w-auto max-w-full rounded object-contain" />
+            <div className="flex items-center justify-center w-full">
+              <img src="/kws-removebg-preview.png" alt="KWS Logo" className="h-[75px] w-auto max-w-full object-contain" />
             </div>
           )
         }
@@ -281,33 +280,6 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
           )
         })}
 
-        {/* Dynamic Services List */}
-        {!collapsed && services.length > 0 && (
-          <div className="pt-4 pb-2 mt-4 border-t border-purple-100">
-            <button
-              onClick={() => setServicesExpanded(!servicesExpanded)}
-              className="flex w-full items-center justify-between px-3 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
-            >
-              <span className="uppercase tracking-wider text-[10px]">Active Services</span>
-              <ChevronRight className={cn("h-3 w-3 transition-transform", servicesExpanded && "rotate-90")} />
-            </button>
-            
-            {servicesExpanded && (
-              <div className="mt-2 space-y-0.5">
-                {services.map(service => (
-                  <Link
-                    key={service.id}
-                    href={(service as any).isStatic ? '/admin/create-order' : `/admin/create-order?form_type_id=${service.id}`}
-                    className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-[11px] font-medium text-slate-500 hover:bg-purple-50 hover:text-purple-700 transition-colors truncate"
-                  >
-                    <BookOpen className="h-3 w-3 flex-shrink-0 text-slate-400" />
-                    <span className="truncate">{service.name}</span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Email Templates List */}
         {!collapsed && (
