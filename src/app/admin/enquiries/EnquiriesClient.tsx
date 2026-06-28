@@ -54,18 +54,25 @@ export default function EnquiriesClient({ businesses, users }: { businesses: Bus
 
   const fetchEnquiries = useCallback(async () => {
     setLoading(true)
-    let q = supabase
-      .from('enquiries')
-      .select('*, business:businesses(id,name,domain), assigned:users!enquiries_assigned_to_fkey(id,full_name,avatar_url)')
-      .order('created_at', { ascending: false })
-
-    if (activeBusinessId !== 'all') q = q.eq('business_id', activeBusinessId)
-    if (search) q = q.or(`customer_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`)
-
-    const { data } = await q
-    setEnquiries(data ?? [])
-    setLoading(false)
-  }, [search, activeBusinessId, supabase])
+    try {
+      const params = new URLSearchParams({
+        business_id: activeBusinessId,
+        search,
+      })
+      
+      const res = await fetch(`/api/enquiries/list?${params.toString()}`)
+      const result = await res.json()
+      if (result.error) {
+        console.error('Error fetching enquiries:', result.error)
+      } else {
+        setEnquiries(result.data ?? [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch enquiries:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [search, activeBusinessId])
 
   useEffect(() => { fetchEnquiries() }, [fetchEnquiries])
 

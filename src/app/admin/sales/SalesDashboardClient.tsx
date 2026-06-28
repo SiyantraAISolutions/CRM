@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { Target, TrendingUp, Users, CalendarClock, Clock, ArrowRight, UserCheck, CheckCircle2 } from 'lucide-react'
-import { formatCurrency, cn } from '@/lib/utils'
+import { Target, TrendingUp, Users, CalendarClock, Clock, ArrowRight, UserCheck, CheckCircle2, Phone, ShoppingCart, FileText, ChevronRight } from 'lucide-react'
+import { formatCurrency, cn, formatDateTime } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
 
 type ActivityStatus = 'available' | 'break' | 'lunch' | 'toilet' | 'training'
 
@@ -14,6 +15,27 @@ interface FollowUp {
   follow_up_at: string | null
 }
 
+interface Order {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  amount_total: number
+  created_at: string
+  status: string
+  brand?: any
+  form_type?: any
+}
+
+interface Enquiry {
+  id: string
+  customer_name: string | null
+  email: string | null
+  phone: string | null
+  pipeline_stage: string
+  created_at: string
+  brand?: any
+}
+
 interface Props {
   userId: string
   userName: string
@@ -22,6 +44,8 @@ interface Props {
   salesTotalMonth: number
   salesTargetMonth: number
   followUps: FollowUp[]
+  recentOrders: Order[]
+  activeEnquiries: Enquiry[]
 }
 
 const activityButtons: { status: ActivityStatus; label: string; colorClass: string; activeClass: string }[] = [
@@ -32,8 +56,17 @@ const activityButtons: { status: ActivityStatus; label: string; colorClass: stri
 ]
 
 export default function SalesDashboardClient({
-  userId, userName, activeLeads, convertedToday, salesTotalMonth, salesTargetMonth, followUps,
+  userId,
+  userName,
+  activeLeads,
+  convertedToday,
+  salesTotalMonth,
+  salesTargetMonth,
+  followUps,
+  recentOrders,
+  activeEnquiries,
 }: Props) {
+  const router = useRouter()
   const supabase = createClient()
   const [activeStatus, setActiveStatus] = useState<ActivityStatus | null>(null)
   const [statusStart, setStatusStart] = useState<Date | null>(null)
@@ -245,6 +278,95 @@ export default function SalesDashboardClient({
             )}
           </div>
         </div>
+      </div>
+
+      {/* Sales Agent: Enquiries and Orders Panels */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        
+        {/* Active Call Enquiries */}
+        <div className="bg-white border border-slate-200 rounded-md shadow-sm p-6">
+          <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+            <h3 className="text-[16px] font-bold text-[#0B1B3A] flex items-center gap-2">
+              <Phone className="h-5 w-5 text-indigo-600" /> Active Call Enquiries ({activeEnquiries.length})
+            </h3>
+            <button onClick={() => router.push('/admin/enquiries')} className="text-xs font-bold text-purple-600 hover:text-purple-800">
+              View All →
+            </button>
+          </div>
+
+          {activeEnquiries.length === 0 ? (
+            <p className="text-xs font-medium text-slate-400 py-8 text-center">No active enquiries assigned to you</p>
+          ) : (
+            <div className="space-y-3">
+              {activeEnquiries.map(enq => (
+                <div key={enq.id} className="p-3 bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-between hover:bg-slate-100 transition-colors cursor-pointer" onClick={() => router.push(`/admin/enquiries/${enq.id}`)}>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold text-slate-800 truncate">{enq.customer_name || 'No Name'}</h4>
+                      {enq.brand && (
+                        <span className="text-[9px] font-bold bg-white text-purple-700 border border-purple-100 px-1.5 py-0.5 rounded uppercase">
+                          {enq.brand.code}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{enq.email || enq.phone || 'No Contact Details'}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-bold bg-amber-50 border border-amber-200 text-amber-800 px-2 py-0.5 rounded capitalize shrink-0">
+                      {enq.pipeline_stage}
+                    </span>
+                    <ChevronRight className="h-4 w-4 text-slate-400" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* My Orders */}
+        <div className="bg-white border border-slate-200 rounded-md shadow-sm p-6">
+          <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+            <h3 className="text-[16px] font-bold text-[#0B1B3A] flex items-center gap-2">
+              <ShoppingCart className="h-5 w-5 text-emerald-600" /> My Orders ({recentOrders.length})
+            </h3>
+            <button onClick={() => router.push('/admin/orders')} className="text-xs font-bold text-purple-600 hover:text-purple-800">
+              View All →
+            </button>
+          </div>
+
+          {recentOrders.length === 0 ? (
+            <p className="text-xs font-medium text-slate-400 py-8 text-center">No orders associated with you yet</p>
+          ) : (
+            <div className="space-y-3">
+              {recentOrders.map(order => {
+                const customerName = `${order.first_name || ''} ${order.last_name || ''}`.trim()
+                return (
+                  <div key={order.id} className="p-3 bg-slate-50 border border-slate-100 rounded-lg hover:border-purple-200 hover:bg-slate-100/50 transition-all flex items-center justify-between group cursor-pointer" onClick={() => router.push(`/admin/orders/${order.id}`)}>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-900 truncate">
+                          {customerName || 'Unknown Customer'}
+                        </span>
+                        {order.brand && (
+                          <span className="text-[9px] font-bold bg-white text-purple-700 border border-purple-100 px-1.5 py-0.5 rounded uppercase">
+                            {order.brand.code}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-1 font-semibold">
+                        {order.form_type?.name || 'Document Fee'} — {formatCurrency(order.amount_total)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-purple-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                      View <ChevronRight className="h-4 w-4 transform group-hover:translate-x-0.5 transition-transform" />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   )

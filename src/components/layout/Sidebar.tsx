@@ -39,75 +39,127 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
 
   // Live badge counts via Supabase realtime
   useEffect(() => {
+    let isMounted = true
+
     async function refreshCounts() {
-      const [t, h, a, r] = await Promise.all([
-        supabase.from('tickets').select('id', { count: 'exact', head: true }).in('status', ['pending', 'awaiting_internal']),
-        supabase.from('help_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-        supabase.from('orders').select('id', { count: 'exact', head: true }).eq('status', 'abandoned'),
-        supabase.from('refunds').select('id', { count: 'exact', head: true }).in('status', ['requested', 'under_review', 'approved']),
-      ])
-      setCounts(c => ({
-        ...c,
-        tickets: t.count ?? 0,
-        helpRequests: h.count ?? 0,
-        abandoned: a.count ?? 0,
-        refunds: r.count ?? 0,
-      }))
+      try {
+        // Check if user is authenticated first
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) {
+          console.log('No active session, skipping badge count refresh')
+          return
+        }
+
+        const [t, h, a, r] = await Promise.all([
+          supabase.from('tickets').select('id', { count: 'exact', head: true }).in('status', ['pending', 'awaiting_internal']),
+          supabase.from('help_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+          supabase.from('orders').select('id', { count: 'exact', head: true }).eq('status', 'abandoned'),
+          supabase.from('refunds').select('id', { count: 'exact', head: true }).in('status', ['requested', 'under_review', 'approved']),
+        ])
+
+        // Check for errors in responses
+        if (t.error) console.error('Error fetching tickets:', t.error.message)
+        if (h.error) console.error('Error fetching help requests:', h.error.message)
+        if (a.error) console.error('Error fetching abandoned orders:', a.error.message)
+        if (r.error) console.error('Error fetching refunds:', r.error.message)
+
+        if (isMounted) {
+          setCounts(c => ({
+            ...c,
+            tickets: t.count ?? 0,
+            helpRequests: h.count ?? 0,
+            abandoned: a.count ?? 0,
+            refunds: r.count ?? 0,
+          }))
+        }
+      } catch (error) {
+        console.error('Error refreshing counts:', error)
+        // Keep existing counts on error
+      }
     }
+    
     refreshCounts()
 
     // Refresh every 60s
     const interval = setInterval(refreshCounts, 60000)
-    return () => clearInterval(interval)
+    return () => {
+      isMounted = false
+      clearInterval(interval)
+    }
   }, [supabase])
 
   // Fetch Services & Templates Once
   useEffect(() => {
-    async function fetchData() {
-      const [{ data: sData }, { data: tData }, { data: oData }] = await Promise.all([
-        supabase.from('form_types').select('id, name, code').order('name'),
-        supabase.from('email_templates').select('id, name').order('name'),
-        supabase.from('orders').select('form_type_id').neq('status', 'abandoned').neq('status', 'dead')
-      ])
-      if (sData) {
-        const orderOfServices = [
-          { code: 'TITLE_REGISTER', name: 'Title Register' },
-          { code: 'TITLE_PLAN', name: 'Title Plan' },
-          { code: 'DEED_SEARCH', name: 'Deed Search', isStatic: true },
-          { code: 'MAP_SEARCH', name: 'Map / Land Search (no address)' },
-          { code: 'PROPERTY_OWNERSHIP', name: 'Property Ownership (Register + Plan)' },
-          { code: 'PROPERTY_ALERT', name: 'Property Alert Service', isStatic: true },
-          { code: 'TR1', name: 'Transfer of Equity' },
-          { code: 'AP1', name: 'Name Change on Deeds' },
-          { code: 'DJP', name: 'Death of a Joint Proprietor' },
-          { code: 'AS1', name: 'Transfer of Equity (Wills / Probate)' },
-          { code: 'SEV', name: 'Tenants in Common' },
-          { code: 'FR1', name: 'First Registration' }
-        ]
+    let isMounted = true
 
-        const mappedServices = orderOfServices.map(item => {
-          const dbItem = sData.find(s => s.code === item.code)
-          return {
-            id: dbItem?.id || item.code,
-            name: item.name,
-            code: item.code,
-            isStatic: !!item.isStatic
-          }
-        })
-        setServices(mappedServices)
-      }
-      if (tData) setEmailTemplates(tData)
-      if (oData) {
-        const counts: Record<string, number> = {}
-        oData.forEach((o: any) => {
-          if (o.form_type_id) {
-            counts[o.form_type_id] = (counts[o.form_type_id] || 0) + 1
-          }
-        })
-        setOrderCounts(counts)
+    async function fetchData() {
+      try {
+        // Check if user is authenticated first
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) {
+          console.log('No active session, skipping sidebar data fetch')
+          return
+        }
+
+        const [{ data: sData, error: sError }, { data: tData, error: tError }, { data: oData, error: oError }] = await Promise.all([
+          supabase.from('form_types').select('id, name, code').order('name'),
+          supabase.from('email_templates').select('id, name').order('name'),
+          supabase.from('orders').select('form_type_id').neq('status', 'abandoned').neq('status', 'dead')
+        ])
+
+        if (sError) console.error('Error fetching form types:', sError.message)
+        if (tError) console.error('Error fetching email templates:', tError.message)
+        if (oError) console.error('Error fetching orders:', oError.message)
+
+        if (!isMounted) return
+
+        if (sData) {
+          const orderOfServices = [
+            { code: 'TITLE_REGISTER', name: 'Title Register' },
+            { code: 'TITLE_PLAN', name: 'Title Plan' },
+            { code: 'DEED_SEARCH', name: 'Deed Search', isStatic: true },
+            { code: 'MAP_SEARCH', name: 'Map / Land Search (no address)' },
+            { code: 'PROPERTY_OWNERSHIP', name: 'Property Ownership (Register + Plan)' },
+            { code: 'PROPERTY_ALERT', name: 'Property Alert Service', isStatic: true },
+            { code: 'TR1', name: 'Transfer of Equity' },
+            { code: 'AP1', name: 'Name Change on Deeds' },
+            { code: 'DJP', name: 'Death of a Joint Proprietor' },
+            { code: 'AS1', name: 'Transfer of Equity (Wills / Probate)' },
+            { code: 'SEV', name: 'Tenants in Common' },
+            { code: 'FR1', name: 'First Registration' }
+          ]
+
+          const mappedServices = orderOfServices.map(item => {
+            const dbItem = sData.find(s => s.code === item.code)
+            return {
+              id: dbItem?.id || item.code,
+              name: item.name,
+              code: item.code,
+              isStatic: !!item.isStatic
+            }
+          })
+          setServices(mappedServices)
+        }
+        if (tData) setEmailTemplates(tData)
+        if (oData) {
+          const counts: Record<string, number> = {}
+          oData.forEach((o: any) => {
+            if (o.form_type_id) {
+              counts[o.form_type_id] = (counts[o.form_type_id] || 0) + 1
+            }
+          })
+          setOrderCounts(counts)
+        }
+      } catch (error) {
+        console.error('Error fetching sidebar data:', error)
+        // Keep empty state on error
       }
     }
     fetchData()
+    
+    return () => {
+      isMounted = false
+    }
   }, [supabase])
 
   type NavItem = {
@@ -120,8 +172,8 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
 
   const navItems: NavItem[] = [
     { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
-    { label: 'Process Panel', href: '/admin/process', icon: Layers },
-    { label: 'Deed Monitor', href: '/admin/monitor', icon: Activity },
+    { label: 'Live Overview of Applications', href: '/admin/process', icon: Layers },
+    { label: 'Process Monitor', href: '/admin/monitor', icon: Activity },
     { label: 'Tickets', href: '/admin/tickets', icon: Ticket, badge: counts.tickets },
     { label: 'Orders', href: '/admin/orders', icon: ShoppingCart },
     { label: 'Conveyancing Call enquiry', href: '/admin/enquiries', icon: MessageSquare },
@@ -175,10 +227,19 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
         collapsed ? 'justify-center px-2' : 'px-4'
       )}>
         {collapsed
-          ? <img src="/kws-removebg-preview.png" alt="K" className="h-[40px] w-auto object-contain" />
-          : (
+          ? (
+            <img 
+              src="/kws-removebg-preview.png" 
+              alt="KWS Logo" 
+              className="h-10 w-auto object-contain rounded-lg shadow-sm" 
+            />
+          ) : (
             <div className="flex items-center justify-center w-full">
-              <img src="/kws-removebg-preview.png" alt="KWS Logo" className="h-[75px] w-auto max-w-full object-contain" />
+              <img 
+                src="/kws-removebg-preview.png" 
+                alt="KWS Logo" 
+                className="h-16 w-auto object-contain rounded-xl shadow-sm" 
+              />
             </div>
           )
         }

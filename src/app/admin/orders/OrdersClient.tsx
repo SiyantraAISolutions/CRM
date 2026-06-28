@@ -50,34 +50,34 @@ export default function OrdersClient({ brands, formTypes }: Props) {
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
-    let query = supabase
-      .from('orders')
-      .select(`
-        *,
-        brand:brands(id, code, name),
-        form_type:form_types(id, name, code),
-        user:users!orders_user_id_fkey(id, full_name)
-      `, { count: 'exact' })
-      .order(sortKey, { ascending: sortDir === 'asc' })
-      .range((page - 1) * pageSize, page * pageSize - 1)
-      .not('status', 'in', '("abandoned","dead")')
-
-    if (activeBusinessId !== 'all') query = query.eq('business_id', activeBusinessId)
-    if (brandFilter !== 'all') query = query.eq('brand_id', brandFilter)
-    if (formTypeFilter !== 'all') query = query.eq('form_type_id', formTypeFilter)
-    if (dateFrom) query = query.gte('created_at', dateFrom)
-    if (dateTo) query = query.lte('created_at', dateTo + 'T23:59:59')
-    if (search) {
-      query = query.or(
-        `first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`
-      )
+    try {
+      const params = new URLSearchParams({
+        business_id: activeBusinessId,
+        brand_id: brandFilter,
+        form_type_id: formTypeFilter,
+        date_from: dateFrom,
+        date_to: dateTo,
+        search,
+        sort_key: sortKey,
+        sort_dir: sortDir,
+        page: String(page),
+        page_size: String(pageSize),
+      })
+      
+      const res = await fetch(`/api/orders/list?${params.toString()}`)
+      const result = await res.json()
+      if (result.error) {
+        console.error('Error fetching orders:', result.error)
+      } else {
+        setOrders(result.data ?? [])
+        setTotal(result.count ?? 0)
+      }
+    } catch (err) {
+      console.error('Failed to fetch orders:', err)
+    } finally {
+      setLoading(false)
     }
-
-    const { data, count } = await query
-    setOrders((data as unknown as Order[]) ?? [])
-    setTotal(count ?? 0)
-    setLoading(false)
-  }, [page, pageSize, search, activeBusinessId, brandFilter, formTypeFilter, dateFrom, dateTo, sortKey, sortDir, supabase])
+  }, [page, pageSize, search, activeBusinessId, brandFilter, formTypeFilter, dateFrom, dateTo, sortKey, sortDir])
 
   useEffect(() => {
     setPage(1)
