@@ -88,7 +88,7 @@ export default function SalesDashboardClient({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-[#f8f7fc] text-slate-900">
+    <div className="h-full overflow-y-auto p-8 space-y-8 bg-[#f8f7fc] text-slate-900">
       
       {/* Welcome banner */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 via-purple-700 to-indigo-800 px-8 py-8 shadow-xl">

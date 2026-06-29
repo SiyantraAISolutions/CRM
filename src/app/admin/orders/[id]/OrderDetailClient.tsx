@@ -420,7 +420,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   // Fetch appointments, staff and refunds
   useEffect(() => {
     async function fetchData() {
-      const { data: aData } = await supabase.from('appointments').select('*, solicitor:users(full_name)').eq('order_id', order.id).order('scheduled_at', { ascending: true })
+      const { data: aData } = await supabase.from('appointments').select('*, solicitor:solicitors(full_name)').eq('order_id', order.id).order('scheduled_at', { ascending: true })
       if (aData) setAppointments(aData)
       
       const { data: sData } = await supabase.from('users').select('id, full_name, role, calendly_link').in('role', ['admin', 'director', 'sales'])
@@ -558,7 +558,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
         notes: appointmentNotes,
         status: 'rescheduled',
         reschedule_history: newHistory
-      }).eq('id', reschedulingId).select('*, solicitor:users(full_name)').single()
+      }).eq('id', reschedulingId).select('*, solicitor:solicitors(full_name)').single()
       
       if (!error && data) {
         setAppointments(prev => prev.map(a => a.id === reschedulingId ? data as Appointment : a))
@@ -571,7 +571,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
         solicitor_id: appointmentSolicitor || null,
         status: 'scheduled',
         notes: appointmentNotes
-      }).select('*, solicitor:users(full_name)').single()
+      }).select('*, solicitor:solicitors(full_name)').single()
 
       if (!error && data) {
         setAppointments([...appointments, data as Appointment])

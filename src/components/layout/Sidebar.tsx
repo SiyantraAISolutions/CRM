@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Ticket, ShoppingCart, Plus, HelpCircle,
   Archive, BookOpen, Shield, LogOut, ChevronLeft, ChevronRight,
   Bell, TrendingUp, CheckSquare, CreditCard, Users, Settings,
-  MessageSquare, Building2, Layers, Mail, Calendar, Activity, PieChart, RotateCcw
+  MessageSquare, Building2, Layers, Mail, Calendar, Activity, PieChart, RotateCcw, Clock
 } from 'lucide-react'
 
 interface BadgeCounts {
@@ -194,6 +194,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
     { label: 'Team', href: '/admin/team', icon: Users, roles: ['director'] },
     { label: 'Director Portal', href: '/admin/director', icon: PieChart, roles: ['director'] },
     { label: 'Blogs', href: '/admin/blogs', icon: BookOpen, roles: ['director'] },
+    { label: 'Scheduler Setup', href: '/admin/director/scheduler', icon: Clock, roles: ['director'] },
     { label: 'Settings', href: '/admin/settings', icon: Settings, roles: ['director'] },
   ]
 
