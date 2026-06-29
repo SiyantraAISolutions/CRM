@@ -51,9 +51,16 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
           return
         }
 
+        let hQuery = supabase.from('help_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+        if (userRole === 'sales') {
+          hQuery = hQuery.ilike('subject', 'Sales Enquiry%')
+        } else {
+          hQuery = hQuery.not('subject', 'ilike', 'Sales Enquiry%')
+        }
+
         const [t, h, a, r] = await Promise.all([
           supabase.from('tickets').select('id', { count: 'exact', head: true }).in('status', ['pending', 'awaiting_internal']),
-          supabase.from('help_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+          hQuery,
           supabase.from('orders').select('id', { count: 'exact', head: true }).eq('status', 'abandoned'),
           supabase.from('refunds').select('id', { count: 'exact', head: true }).in('status', ['requested', 'under_review', 'approved']),
         ])
@@ -231,23 +238,27 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
 
       {/* Logo */}
       <div className={cn(
-        'flex items-center border-b border-purple-100 h-[90px] relative z-10',
+        'flex items-center border-b border-purple-100 h-[105px] relative z-10',
         collapsed ? 'justify-center px-2' : 'px-4'
       )}>
         {collapsed
           ? (
-            <img 
-              src="/kws-removebg-preview.png" 
-              alt="KWS Logo" 
-              className="h-10 w-auto object-contain rounded-lg shadow-sm" 
-            />
-          ) : (
-            <div className="flex items-center justify-center w-full">
+            <div className="bg-slate-50/60 border border-slate-100 p-1.5 rounded-lg shadow-sm flex items-center justify-center">
               <img 
                 src="/kws-removebg-preview.png" 
                 alt="KWS Logo" 
-                className="h-16 w-auto object-contain rounded-xl shadow-sm" 
+                className="h-8 w-auto object-contain" 
               />
+            </div>
+          ) : (
+            <div className="flex items-center justify-center w-full px-2">
+              <div className="bg-slate-50/50 border border-slate-100/80 p-3.5 rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.03)] flex items-center justify-center w-full hover:bg-slate-50 transition-all duration-200">
+                <img 
+                  src="/kws-removebg-preview.png" 
+                  alt="KWS Logo" 
+                  className="h-16 w-auto object-contain transition-transform duration-200 hover:scale-[1.02]" 
+                />
+              </div>
             </div>
           )
         }

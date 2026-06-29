@@ -11,7 +11,7 @@ import { useBusiness } from '@/context/BusinessContext'
 
 interface Brand { id: string; code: string; name: string }
 
-export default function HelpRequestsClient({ brands }: { brands: Brand[] }) {
+export default function HelpRequestsClient({ brands, userRole = 'sales' }: { brands: Brand[]; userRole?: string }) {
   const router = useRouter()
   const supabase = createClient()
   const { activeBusinessId } = useBusiness()
@@ -38,6 +38,12 @@ export default function HelpRequestsClient({ brands }: { brands: Brand[] }) {
       .order('created_at', { ascending: false })
       .range((page - 1) * 10, page * 10 - 1)
 
+    if (userRole === 'sales') {
+      q = q.ilike('subject', 'Sales Enquiry%')
+    } else {
+      q = q.not('subject', 'ilike', 'Sales Enquiry%')
+    }
+
     if (activeBusinessId !== 'all') {
       // Map global activeBusinessId to brand_id since help_requests uses brand_id
       q = q.eq('brand_id', activeBusinessId)
@@ -50,7 +56,7 @@ export default function HelpRequestsClient({ brands }: { brands: Brand[] }) {
     setData(d ?? [])
     setTotal(count ?? 0)
     setLoading(false)
-  }, [page, search, activeBusinessId, brandFilter, supabase])
+  }, [page, search, activeBusinessId, brandFilter, supabase, userRole])
 
   useEffect(() => {
     setPage(1)

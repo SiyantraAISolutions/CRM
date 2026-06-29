@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { notFound } from 'next/navigation'
 import LayoutHeader from '@/components/layout/LayoutHeader'
 import Breadcrumbs from '@/components/layout/Breadcrumbs'
@@ -6,7 +6,11 @@ import TicketDetailClient from './TicketDetailClient'
 
 export default async function TicketDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const supabase = await createClient()
+  
+  const supabase = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
 
   const { data: ticket } = await supabase
     .from('tickets')

@@ -104,7 +104,7 @@ export default function CreateOrderClient({ brands }: Props) {
   const supabase = createClient()
 
   const [step, setStep] = useState<WizardStep>('landing')
-  const [isInbound, setIsInbound] = useState<boolean | null>(null)
+  const [interactionType, setInteractionType] = useState<'inbound' | 'inbound_bing' | 'inbound_google' | 'outbound' | 'help_request' | 'enquiry' | 'appointment' | null>(null)
   const [selectedBrand, setSelectedBrand] = useState<Brand | null>(null)
   const [formTypes, setFormTypes] = useState<FormType[]>([])
   const [selectedFormType, setSelectedFormType] = useState<FormType | null>(null)
@@ -244,7 +244,7 @@ export default function CreateOrderClient({ brands }: Props) {
       form_type_id: selectedFormType!.id,
       business_id: selectedFormType!.business_id,
       user_id: user?.id,
-      is_inbound: isInbound,
+      is_inbound: interactionType ? interactionType.startsWith('inbound') : false,
       status: 'lead',
       priority: 'standard',
       amount_total: grandTotal,
@@ -330,10 +330,18 @@ export default function CreateOrderClient({ brands }: Props) {
       }
     }
 
+    let interactionLabel = 'inbound call'
+    if (interactionType === 'outbound') interactionLabel = 'outbound call'
+    else if (interactionType === 'inbound_bing') interactionLabel = 'inbound bing call'
+    else if (interactionType === 'inbound_google') interactionLabel = 'inbound google call'
+    else if (interactionType === 'help_request') interactionLabel = 'help request'
+    else if (interactionType === 'enquiry') interactionLabel = 'enquiry'
+    else if (interactionType === 'appointment') interactionLabel = 'appointment'
+
     await supabase.from('order_notes').insert({
       order_id: newOrder.id,
       user_id: user?.id,
-      message: `Order created via ${isInbound ? 'inbound' : 'outbound'} call`,
+      message: `Order created via ${interactionLabel}`,
       category: 'Order Created',
     })
 
@@ -409,78 +417,100 @@ export default function CreateOrderClient({ brands }: Props) {
   // STEP: LANDING
   if (step === 'landing') {
     return (
-      <div className="flex-1 overflow-y-auto flex flex-col items-center justify-start pt-32 gap-10 p-10 bg-[#f8f9fa]">
-        <h2 className="text-[28px] font-bold text-[#0B1B3A] tracking-tight">CREATE ORDER</h2>
-        <div className="flex gap-6 w-full max-w-2xl">
-          <button
-            onClick={() => { setIsInbound(true); }}
-            className={cn(
-              'flex-1 flex flex-col items-center gap-4 rounded-2xl border-2 p-10 text-[18px] font-bold transition-all duration-200',
-              isInbound === true
-                ? 'border-[#0B1B3A] bg-[#0B1B3A] text-white shadow-xl scale-[1.03]'
-                : 'border-slate-200 bg-white hover:border-[#0B1B3A] hover:bg-slate-50 text-slate-600 hover:text-[#0B1B3A]'
-            )}
-          >
-            <Phone className={cn("h-10 w-10", isInbound === true ? "text-white" : "text-slate-400")} />
-            This is an inbound call.
-          </button>
-          <button
-            onClick={() => { setIsInbound(false); }}
-            className={cn(
-              'flex-1 flex flex-col items-center gap-4 rounded-2xl border-2 p-10 text-[18px] font-bold transition-all duration-200',
-              isInbound === false
-                ? 'border-[#f97316] bg-[#f97316] text-white shadow-xl scale-[1.03]'
-                : 'border-slate-200 bg-white hover:border-[#f97316] hover:bg-orange-50 text-slate-600 hover:text-[#f97316]'
-            )}
-          >
-            <PhoneOff className={cn("h-10 w-10", isInbound === false ? "text-white" : "text-slate-400")} />
-            This is not an inbound call.
-          </button>
-        </div>
-
-        <div className={cn(
-          "w-full max-w-2xl transition-all duration-500 ease-in-out",
-          isInbound !== null ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none"
-        )}>
-          <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-6">
-            <div>
-              <label className="block text-[15px] font-semibold text-slate-800 mb-3">Select Phone Identifier</label>
-              <select
-                className="w-full h-12 px-4 border border-slate-300 rounded-lg focus:border-[#0B1B3A] focus:ring-1 focus:ring-[#0B1B3A] focus:outline-none text-[15px] text-slate-700 bg-white shadow-sm transition-shadow"
-                value={selectedBrand?.id ?? ''}
-                onChange={e => {
-                  const b = brands.find(br => br.id === e.target.value)
-                  setSelectedBrand(b ?? null)
-                }}
-              >
-                <option value="">Select Phone Identifier...</option>
-                {brands.map(b => (
-                  <option key={b.id} value={b.id}>{b.code} — {b.name}</option>
-                ))}
-              </select>
-            </div>
-            {selectedBrand && (
-              <div className="mt-4 border border-slate-200 rounded-lg overflow-hidden flex flex-col">
-                {formTypes.map((ft, idx) => (
-                  <div key={ft.code} className={cn(
-                    "flex items-center justify-between p-4",
-                    idx % 2 === 0 ? "bg-[#f8f9fa]" : "bg-white"
-                  )}>
-                    <div className="font-medium text-[#2c3e50] text-[15px]">{ft.name}</div>
-                    <button
-                      onClick={() => { setSelectedFormType(ft); setStep('wizard') }}
-                      className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[14px] font-medium px-6 py-2 rounded transition-colors"
-                    >
-                      Create Order
-                    </button>
-                  </div>
-                ))}
-                {formTypes.length === 0 && (
-                  <p className="text-sm text-slate-500 text-center py-6 bg-white">No services found for this brand.</p>
-                )}
-              </div>
-            )}
+      <div className="flex-1 overflow-y-auto flex flex-col items-center justify-start pt-16 gap-6 p-10 bg-[#f8f9fa]">
+        <h2 className="text-[28px] font-bold text-[#0B1B3A] tracking-tight self-start max-w-4xl mx-auto w-full mb-2">CREATE ORDER</h2>
+        
+        <div className="w-full max-w-4xl bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-6">
+          {/* Inbound / Not Inbound Buttons */}
+          <div className="flex gap-4 w-full">
+            <button
+              onClick={() => { setInteractionType('inbound'); }}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-3 rounded-lg py-4 text-[16px] font-semibold text-white transition-all duration-200',
+                (interactionType && interactionType.startsWith('inbound')) ? 'bg-[#2ecc71] shadow-md' : 'bg-[#2ecc71]/80 hover:bg-[#2ecc71]'
+              )}
+            >
+              <span className="w-4 h-4 rounded-full border-2 border-white flex items-center justify-center bg-transparent">
+                {(interactionType && interactionType.startsWith('inbound')) && <span className="w-2 h-2 rounded-full bg-white" />}
+              </span>
+              This is an inbound call.
+            </button>
+            <button
+              onClick={() => { setInteractionType('outbound'); }}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-3 rounded-lg py-4 text-[16px] font-semibold text-white transition-all duration-200',
+                (!interactionType || !interactionType.startsWith('inbound')) ? 'bg-[#e74c3c] shadow-md' : 'bg-[#e74c3c]/80 hover:bg-[#e74c3c]'
+              )}
+            >
+              <span className="w-4 h-4 rounded-full border-2 border-white flex items-center justify-center bg-transparent">
+                {(!interactionType || !interactionType.startsWith('inbound')) && <span className="w-2 h-2 rounded-full bg-white" />}
+              </span>
+              This is not an inbound call.
+            </button>
           </div>
+
+          {/* Brand Selector */}
+          <div>
+            <select
+              className="w-full h-12 px-4 border border-slate-300 rounded-lg focus:border-[#0B1B3A] focus:ring-1 focus:ring-[#0B1B3A] focus:outline-none text-[15px] text-slate-700 bg-white shadow-sm transition-shadow"
+              value={selectedBrand?.id ?? ''}
+              onChange={e => {
+                const b = brands.find(br => br.id === e.target.value)
+                setSelectedBrand(b ?? null)
+              }}
+            >
+              <option value="">Select Phone Identifier...</option>
+              {brands.map(b => (
+                <option key={b.id} value={b.id}>{b.code} — {b.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Interaction Type Dropdown */}
+          <div>
+            <select
+              className="w-full h-12 px-4 border border-slate-300 rounded-lg focus:border-[#0B1B3A] focus:ring-1 focus:ring-[#0B1B3A] focus:outline-none text-[15px] text-slate-700 bg-white shadow-sm transition-shadow"
+              value={interactionType || ''}
+              onChange={e => {
+                const val = e.target.value;
+                setInteractionType((val as any) || null);
+              }}
+            >
+              <option value="">Select Type...</option>
+              <option value="inbound">Inbound</option>
+              <option value="inbound_bing">Inbound Bing</option>
+              <option value="inbound_google">Inbound Google</option>
+              <option value="outbound">Outbound</option>
+              <option value="help_request">Help Request</option>
+              <option value="enquiry">Enquiry</option>
+              <option value="appointment">Appointment</option>
+            </select>
+          </div>
+
+
+
+          {/* Services List */}
+          {selectedBrand && (
+            <div className="mt-4 border border-slate-200 rounded-lg overflow-hidden flex flex-col">
+              {formTypes.map((ft, idx) => (
+                <div key={ft.code} className={cn(
+                  "flex items-center justify-between p-4 border-b border-slate-100 last:border-b-0",
+                  idx % 2 === 0 ? "bg-[#f8f9fa]" : "bg-white"
+                )}>
+                  <div className="font-semibold text-[#2c3e50] text-[15px]">{ft.name}</div>
+                  <button
+                    onClick={() => { setSelectedFormType(ft); setStep('wizard') }}
+                    className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[14px] font-semibold px-6 py-2 rounded transition-colors"
+                  >
+                    Create Order
+                  </button>
+                </div>
+              ))}
+              {formTypes.length === 0 && (
+                <p className="text-sm text-slate-500 text-center py-6 bg-white">No services found for this brand.</p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     )

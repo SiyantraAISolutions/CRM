@@ -38,10 +38,12 @@ export default async function DashboardPage({ searchParams }: Props) {
   let helpRequestsQuery = supabase.from('help_requests')
     .select('id', { count: 'exact', head: true })
     .in('status', ['pending', 'in_progress'])
+    .neq('subject', 'Sales Enquiry')
 
   let recentHelpRequestsQuery = supabase.from('help_requests')
     .select('id, subject, customer_name, customer_email, status, created_at, brand:brands(code,name)')
     .in('status', ['pending', 'in_progress'])
+    .neq('subject', 'Sales Enquiry')
     .order('created_at', { ascending: false })
     .limit(5)
 
