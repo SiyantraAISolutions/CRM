@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     const inviteeName = payload.name || `${payload.first_name || ''} ${payload.last_name || ''}`.trim() || 'Anonymous'
     const inviteeEmail = payload.email
     
-    let inviteePhone = payload.text_reminder_number || ''
+    let inviteePhone = payload.phone_number || payload.text_reminder_number || ''
     if (!inviteePhone && payload.questions_and_answers && Array.isArray(payload.questions_and_answers)) {
       const phoneQA = payload.questions_and_answers.find((qa: any) => {
         const q = qa.question.toLowerCase()
@@ -176,14 +176,34 @@ export async function POST(req: NextRequest) {
       console.log(`Successfully recorded Calendly appointment for order ${order.id}`)
     } else {
       // 2. If no active order, fallback to Enquiry creation
-      // Retrieve default business mapping
-      const { data: defaultBizSetting } = await supabase
-        .from('settings')
-        .select('value')
-        .eq('key', 'calendly_default_business_id')
-        .single()
+      const utmSource = (payload.tracking?.utm_source || '').toLowerCase()
+      let businessId = null
 
-      let businessId = defaultBizSetting?.value
+      if (utmSource.includes('lrt') || utmSource.includes('transfers') || utmSource.includes('landregistrytransfers')) {
+        const { data: biz } = await supabase
+          .from('businesses')
+          .select('id')
+          .eq('domain', 'landregistrytransfers.com')
+          .single()
+        businessId = biz?.id
+      } else if (utmSource.includes('ort') || utmSource.includes('olr') || utmSource.includes('online') || utmSource.includes('onlinelandregistry')) {
+        const { data: biz } = await supabase
+          .from('businesses')
+          .select('id')
+          .eq('domain', 'onlinelandregistry.uk')
+          .single()
+        businessId = biz?.id
+      }
+
+      if (!businessId) {
+        // Retrieve default business mapping
+        const { data: defaultBizSetting } = await supabase
+          .from('settings')
+          .select('value')
+          .eq('key', 'calendly_default_business_id')
+          .single()
+        businessId = defaultBizSetting?.value
+      }
 
       if (!businessId) {
         const { data: biz } = await supabase
@@ -207,7 +227,7 @@ export async function POST(req: NextRequest) {
         email: inviteeEmail,
         phone: inviteePhone,
         message: `Booked: ${eventName} ${startTime ? 'on ' + startTime : ''}`,
-        source: 'Calendly',
+        source: utmSource ? `Calendly (${utmSource.toUpperCase()})` : 'Calendly',
         pipeline_stage: 'new',
         business_id: businessId,
         notes: notes,

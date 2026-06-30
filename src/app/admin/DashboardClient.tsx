@@ -215,7 +215,7 @@ export default function DashboardClient({
               <h3 className="text-[16px] font-bold text-[#0B1B3A] flex items-center gap-2">
                 <Ticket className="h-5 w-5 text-purple-600" /> Active Help Tickets ({helpRequests.length})
               </h3>
-              <button onClick={() => router.push('/admin/help')} className="text-xs font-bold text-purple-600 hover:text-purple-800">
+              <button onClick={() => router.push('/admin/help-requests')} className="text-xs font-bold text-purple-600 hover:text-purple-800">
                 View All →
               </button>
             </div>
@@ -225,7 +225,7 @@ export default function DashboardClient({
             ) : (
               <div className="space-y-3">
                 {helpRequests.map(req => (
-                  <div key={req.id} className="p-3 bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-between hover:bg-slate-100 transition-colors cursor-pointer" onClick={() => router.push(`/admin/help/${req.id}`)}>
+                  <div key={req.id} className="p-3 bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-between hover:bg-slate-100 transition-colors cursor-pointer" onClick={() => router.push(`/admin/help-requests/${req.id}`)}>
                     <div className="min-w-0">
                       <h4 className="text-xs font-bold text-slate-800 truncate">{req.subject}</h4>
                       <p className="text-[10px] text-slate-500 mt-0.5">

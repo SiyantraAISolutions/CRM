@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink, Calendar, RefreshCcw, Clock, ArrowRight, MessageSquare, AlertCircle, ShieldCheck, Search, Upload, Eye, X } from 'lucide-react'
+import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink, Calendar, RefreshCcw, Clock, ArrowRight, MessageSquare, AlertCircle, ShieldCheck, Search, Upload, Eye, X, FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDateTime, timeAgo, cn } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -31,7 +31,7 @@ function formatDate(dateStr: string) {
   return `${pad(d.getHours())}:${pad(d.getMinutes())} ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`
 }
 
-type Tab = 'breakdown' | 'information' | 'notes' | 'history'
+type Tab = 'breakdown' | 'information' | 'notes' | 'history' | 'process'
 
 interface OrderItem { id: string; item_type: string; amount: number }
 interface OrderNote { id: string; message: string; category?: string; created_at: string; user?: { full_name: string; avatar_url?: string } }
@@ -216,6 +216,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
 
   // Customer Data Editing State
   const [editingInfo, setEditingInfo] = useState(false)
+  const [editingItems, setEditingItems] = useState(false)
   
   // Deferral State
   const [showDeferModal, setShowDeferModal] = useState(false)
@@ -358,6 +359,106 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
     }
   }
 
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
+
+  const handleUploadAttachment = async (file: File) => {
+    setUploadingAttachment(true)
+    try {
+      const fileExt = file.name.split('.').pop()
+      const randomString = Math.random().toString(36).substring(2)
+      const filePath = `attachments/${order.id}/${randomString}_${file.name}`
+      
+      const { data, error: uploadError } = await supabase.storage
+        .from('order-documents')
+        .upload(filePath, file)
+
+      if (uploadError) {
+        toast.error('Failed to upload file to storage')
+        console.error(uploadError)
+        setUploadingAttachment(false)
+        return
+      }
+
+      const currentAttachments = submissionReqs.attachments || []
+      const newAttachments = [...currentAttachments, {
+        name: file.name,
+        url: filePath,
+        uploaded_at: new Date().toISOString()
+      }]
+      const newReqs = { ...submissionReqs, attachments: newAttachments }
+
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({
+          submission_requirements: newReqs
+        })
+        .eq('id', order.id)
+
+      if (updateError) {
+        toast.error('Failed to update order in database')
+        console.error(updateError)
+      } else {
+        setSubmissionReqs(newReqs)
+        toast.success('Attachment uploaded successfully!')
+        await addTimelineNote(`Uploaded attachment: ${file.name}`, 'Upload')
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('An error occurred during upload')
+    } finally {
+      setUploadingAttachment(false)
+    }
+  }
+
+  const handleDeleteAttachment = async (attToDelete: any) => {
+    if (!window.confirm(`Are you sure you want to remove the attachment "${attToDelete.name}"?`)) return
+
+    try {
+      await supabase.storage.from('order-documents').remove([attToDelete.url])
+
+      const currentAttachments = submissionReqs.attachments || []
+      const newAttachments = currentAttachments.filter((att: any) => att.url !== attToDelete.url)
+      const newReqs = { ...submissionReqs, attachments: newAttachments }
+
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          submission_requirements: newReqs
+        })
+        .eq('id', order.id)
+
+      if (error) {
+        toast.error('Failed to remove attachment from database')
+        console.error(error)
+      } else {
+        setSubmissionReqs(newReqs)
+        toast.success('Attachment removed!')
+        await addTimelineNote(`Removed attachment: ${attToDelete.name}`, 'Delete')
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('An error occurred while removing attachment')
+    }
+  }
+
+  const handleViewAttachment = async (url: string) => {
+    try {
+      const { data, error } = await supabase.storage
+        .from('order-documents')
+        .createSignedUrl(url, 3600)
+
+      if (error) {
+        toast.error('Failed to view file')
+        console.error(error)
+      } else if (data?.signedUrl) {
+        window.open(data.signedUrl, '_blank')
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('An error occurred while opening file')
+    }
+  }
+
   const [customerData, setCustomerData] = useState({
     first_name: order.first_name || '',
     middle_name: order.middle_name || '',
@@ -479,6 +580,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
     { id: 'information', label: 'Information' },
     { id: 'notes', label: 'Notes', count: manualNotes.length },
     { id: 'history', label: 'Application History', count: historyLogs.length },
+    { id: 'process', label: 'Process' },
   ]
 
   // ─── Order Items ──────────────────────────────────────────────
@@ -597,6 +699,74 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   }
 
   // ─── Status & Notes ───────────────────────────────────────────
+  async function updateMonitorStage(newStage: string) {
+    setSaving(true)
+    let correspondingStatus = order.status
+    if (newStage === 'awaiting') {
+      correspondingStatus = 'paid'
+    } else if (newStage === 'in_progress') {
+      correspondingStatus = 'processing'
+    } else if (newStage === 'submitted') {
+      correspondingStatus = 'processing'
+    } else if (newStage === 'completed') {
+      correspondingStatus = 'completed'
+    }
+
+    const { error } = await supabase
+      .from('orders')
+      .update({
+        monitor_stage: newStage,
+        status: correspondingStatus
+      })
+      .eq('id', order.id)
+
+    if (error) {
+      toast.error(`Failed to update application status: ${error.message}`)
+      setSaving(false)
+      return
+    }
+
+    setMonitorStage(newStage)
+    setOrder(prev => ({ ...prev, monitor_stage: newStage, status: correspondingStatus }))
+    
+    // Log timeline note
+    await addTimelineNote(`Application process status changed to: ${newStage.toUpperCase().replace('_', ' ')}`, 'Status Change')
+    
+    // Auto-select template
+    let templateName = ''
+    if (newStage === 'awaiting') templateName = 'Purchase Confirmation'
+    else if (newStage === 'in_progress') templateName = 'Application Received & Processing'
+    else if (newStage === 'submitted') templateName = 'Application Received'
+    else if (newStage === 'completed') templateName = 'Application Completed'
+
+    if (templateName) {
+      const matched = emailTemplates.find(t => t.name.toLowerCase().includes(templateName.toLowerCase()))
+      if (matched) {
+        setSelectedTemplateId(matched.id)
+      }
+    }
+
+    toast.success(`Application status updated to ${newStage.toUpperCase().replace('_', ' ')}`)
+    setSaving(false)
+  }
+
+  useEffect(() => {
+    if (emailTemplates.length > 0 && monitorStage && !selectedTemplateId) {
+      let templateName = ''
+      if (monitorStage === 'awaiting') templateName = 'Purchase Confirmation'
+      else if (monitorStage === 'in_progress') templateName = 'Application Received & Processing'
+      else if (monitorStage === 'submitted') templateName = 'Application Received'
+      else if (monitorStage === 'completed') templateName = 'Application Completed'
+
+      if (templateName) {
+        const matched = emailTemplates.find(t => t.name.toLowerCase().includes(templateName.toLowerCase()))
+        if (matched) {
+          setSelectedTemplateId(matched.id)
+        }
+      }
+    }
+  }, [emailTemplates, monitorStage, selectedTemplateId])
+
   async function setOrderStatus(newStatus: string) {
     const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', order.id)
     if (error) {
@@ -908,31 +1078,211 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
         {/* INFORMATION TAB */}
         {activeTab === 'information' && (
           <div className="p-10 w-full">
-            <table className="w-full text-left border-collapse text-[15px]">
-              <tbody>
-                {[
-                  { label: 'No of properties', value: '1' },
-                  { label: 'Properties', value: '0' },
-                  { label: 'Property address', value: `${order.address_line1 || ''} ${order.address_line2 || ''} ${order.city || ''} ${order.postcode || ''}`.trim() || '—' },
-                  { label: 'Country', value: order.county || 'England' },
-                  { label: 'Title number', value: order.title_number || '—' },
-                  { label: 'Tenure', value: order.tenure || '—' },
-                  { label: 'Title', value: order.title || '—' },
-                  { label: 'First name', value: order.first_name || '—' },
-                  { label: 'Middle name', value: order.middle_name || '—' },
-                  { label: 'Surname', value: order.last_name || '—' },
-                  { label: 'Email', value: order.email || '—' },
-                  { label: 'Phone', value: order.phone || '—' },
-                  { label: 'Property Value', value: order.property_value || '—' },
-                  { label: 'HMLR Fee', value: order.hmlr_fee || '—' },
-                ].map((row, idx) => (
-                  <tr key={idx} className={idx % 2 === 0 ? "bg-[#f8f9fa]" : "bg-white"}>
-                    <td className="py-4 px-5 font-semibold text-slate-700 w-[250px] align-top">{row.label}</td>
-                    <td className="py-4 px-5 text-slate-700 align-top break-words">{row.value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {isAdminOrDirector && (
+              <div className="flex justify-end mb-4">
+                {!editingInfo ? (
+                  <button
+                    onClick={() => setEditingInfo(true)}
+                    className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[14px] font-medium px-6 py-2 rounded-md transition-colors flex items-center gap-2"
+                  >
+                    Edit Details
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={saveCustomerData}
+                      disabled={saving}
+                      className="bg-[#28a745] hover:bg-[#218838] text-white text-[14px] font-medium px-6 py-2 rounded-md transition-colors flex items-center gap-2"
+                    >
+                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Save
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingInfo(false)
+                        setCustomerData({
+                          first_name: order.first_name || '',
+                          middle_name: order.middle_name || '',
+                          last_name: order.last_name || '',
+                          email: order.email || '',
+                          phone: order.phone || '',
+                          address_line1: order.address_line1 || '',
+                          address_line2: order.address_line2 || '',
+                          city: order.city || '',
+                          county: order.county || '',
+                          postcode: order.postcode || '',
+                          title_number: order.title_number || '',
+                          tenure: order.tenure || '',
+                          property_value: order.property_value || '',
+                          hmlr_fee: order.hmlr_fee || '',
+                          tenancy_type: order.tenancy_type || ''
+                        })
+                      }}
+                      className="bg-slate-500 hover:bg-slate-600 text-white text-[14px] font-medium px-6 py-2 rounded-md transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!editingInfo ? (
+              <table className="w-full text-left border-collapse text-[15px]">
+                <tbody>
+                  {[
+                    { label: 'No of properties', value: '1' },
+                    { label: 'Properties', value: '0' },
+                    { label: 'Property address', value: `${order.address_line1 || ''} ${order.address_line2 || ''} ${order.city || ''} ${order.postcode || ''}`.trim() || '—' },
+                    { label: 'Country', value: order.county || 'England' },
+                    { label: 'Title number', value: order.title_number || '—' },
+                    { label: 'Tenure', value: order.tenure || '—' },
+                    { label: 'Title', value: order.title || '—' },
+                    { label: 'First name', value: order.first_name || '—' },
+                    { label: 'Middle name', value: order.middle_name || '—' },
+                    { label: 'Surname', value: order.last_name || '—' },
+                    { label: 'Email', value: order.email || '—' },
+                    { label: 'Phone', value: order.phone || '—' },
+                    { label: 'Property Value', value: order.property_value || '—' },
+                    { label: 'HMLR Fee', value: order.hmlr_fee || '—' },
+                  ].map((row, idx) => (
+                    <tr key={idx} className={idx % 2 === 0 ? "bg-[#f8f9fa]" : "bg-white"}>
+                      <td className="py-4 px-5 font-semibold text-slate-700 w-[250px] align-top">{row.label}</td>
+                      <td className="py-4 px-5 text-slate-700 align-top break-words">{row.value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="grid grid-cols-2 gap-6 max-w-4xl">
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">First Name</label>
+                  <input
+                    type="text"
+                    value={customerData.first_name}
+                    onChange={e => setCustomerData({ ...customerData, first_name: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">Middle Name</label>
+                  <input
+                    type="text"
+                    value={customerData.middle_name}
+                    onChange={e => setCustomerData({ ...customerData, middle_name: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">Surname</label>
+                  <input
+                    type="text"
+                    value={customerData.last_name}
+                    onChange={e => setCustomerData({ ...customerData, last_name: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={customerData.email}
+                    onChange={e => setCustomerData({ ...customerData, email: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">Phone</label>
+                  <input
+                    type="text"
+                    value={customerData.phone}
+                    onChange={e => setCustomerData({ ...customerData, phone: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">Address Line 1</label>
+                  <input
+                    type="text"
+                    value={customerData.address_line1}
+                    onChange={e => setCustomerData({ ...customerData, address_line1: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">Address Line 2</label>
+                  <input
+                    type="text"
+                    value={customerData.address_line2}
+                    onChange={e => setCustomerData({ ...customerData, address_line2: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">City</label>
+                  <input
+                    type="text"
+                    value={customerData.city}
+                    onChange={e => setCustomerData({ ...customerData, city: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">County</label>
+                  <input
+                    type="text"
+                    value={customerData.county}
+                    onChange={e => setCustomerData({ ...customerData, county: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">Postcode</label>
+                  <input
+                    type="text"
+                    value={customerData.postcode}
+                    onChange={e => setCustomerData({ ...customerData, postcode: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">Title Number</label>
+                  <input
+                    type="text"
+                    value={customerData.title_number}
+                    onChange={e => setCustomerData({ ...customerData, title_number: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">Tenure</label>
+                  <input
+                    type="text"
+                    value={customerData.tenure}
+                    onChange={e => setCustomerData({ ...customerData, tenure: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">Property Value</label>
+                  <input
+                    type="text"
+                    value={customerData.property_value}
+                    onChange={e => setCustomerData({ ...customerData, property_value: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-slate-600 mb-1">HMLR Fee</label>
+                  <input
+                    type="text"
+                    value={customerData.hmlr_fee}
+                    onChange={e => setCustomerData({ ...customerData, hmlr_fee: e.target.value })}
+                    className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -944,18 +1294,21 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
               <label className="block text-[14px] text-slate-600 mb-2">Payment Verified By</label>
               <input
                 type="text"
+                disabled={!isAdminOrDirector}
                 value={paymentVerifiedBy}
                 onChange={e => setPaymentVerifiedBy(e.target.value)}
-                className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm"
+                className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none mb-4 text-[15px] text-slate-800 shadow-sm disabled:bg-slate-50 disabled:text-slate-500"
               />
-              <div className="flex gap-3">
-                <button
-                  onClick={savePaymentVerifiedBy}
-                  className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[14px] font-medium px-6 py-2.5 rounded-md transition-colors"
-                >
-                  Save
-                </button>
-              </div>
+              {isAdminOrDirector && (
+                <div className="flex gap-3">
+                  <button
+                    onClick={savePaymentVerifiedBy}
+                    className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[14px] font-medium px-6 py-2.5 rounded-md transition-colors"
+                  >
+                    Save
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* VAT Buttons Row */}
@@ -976,6 +1329,47 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
 
             {/* Items Table */}
             <div className="w-full">
+              {isAdminOrDirector && (
+                <div className="flex justify-end mb-4 gap-2">
+                  {!editingItems ? (
+                    <button
+                      onClick={() => setEditingItems(true)}
+                      className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[14px] font-medium px-6 py-2 rounded-md transition-colors"
+                    >
+                      Edit Items
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={addItem}
+                        className="bg-[#28a745] hover:bg-[#218838] text-white text-[14px] font-medium px-6 py-2 rounded-md transition-colors"
+                      >
+                        Add Item
+                      </button>
+                      <button
+                        onClick={async () => {
+                          await saveItems()
+                          setEditingItems(false)
+                        }}
+                        disabled={saving}
+                        className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[14px] font-medium px-6 py-2 rounded-md transition-colors disabled:opacity-50"
+                      >
+                        Save Line Items
+                      </button>
+                      <button
+                        onClick={() => {
+                          setItems((order.items as OrderItem[]) ?? [])
+                          setEditingItems(false)
+                        }}
+                        className="bg-slate-500 hover:bg-slate-600 text-white text-[14px] font-medium px-6 py-2 rounded-md transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 text-[14px] font-bold text-slate-800">
@@ -984,23 +1378,65 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                     <th className="pb-4 px-2">Status</th>
                     <th className="pb-4 px-2">Date/Time</th>
                     <th className="pb-4 px-2 text-right">Amount</th>
+                    {editingItems && <th className="pb-4 px-2 text-right">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="text-[14px] text-slate-700">
-                  {items.map((item, idx) => {
-                    const itemId = String(item.id).slice(-6).toUpperCase()
-                    const itemStatus = (idx === 0 && order.status === 'paid') ? 'Complete' : 'Incomplete'
-                    return (
-                      <tr key={item.id} className="border-b border-slate-100">
-                        <td className="py-5 px-2 font-medium">{itemId}</td>
-                        <td className="py-5 px-2">{item.item_type}</td>
-                        <td className="py-5 px-2">{itemStatus}</td>
-                        <td className="py-5 px-2">{formatDate(order.created_at)}</td>
-                        <td className="py-5 px-2 text-right font-medium">£{Number(item.amount).toFixed(2)}</td>
-                      </tr>
-                    )
-                  })}
-                  {items.length === 0 && (
+                  {editingItems ? (
+                    items.map((item, idx) => {
+                      const itemId = String(item.id).slice(-6).toUpperCase()
+                      return (
+                        <tr key={item.id} className="border-b border-slate-100">
+                          <td className="py-5 px-2 font-medium">{itemId}</td>
+                          <td className="py-5 px-2">
+                            <select
+                              value={item.item_type}
+                              onChange={e => updateItem(item.id, 'item_type', e.target.value)}
+                              className="form-input py-1 text-xs w-64 bg-white border border-slate-300 rounded"
+                            >
+                              {ITEM_TYPES.map(type => (
+                                <option key={type} value={type}>{type}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="py-5 px-2">Incomplete</td>
+                          <td className="py-5 px-2">{formatDate(order.created_at)}</td>
+                          <td className="py-5 px-2 text-right">
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={item.amount}
+                              onChange={e => updateItem(item.id, 'amount', e.target.value)}
+                              className="form-input py-1 text-xs w-24 text-right bg-white border border-slate-300 rounded"
+                            />
+                          </td>
+                          <td className="py-5 px-2 text-right">
+                            <button
+                              onClick={() => removeItem(item.id)}
+                              className="text-red-500 hover:text-red-700 p-1"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  ) : (
+                    items.map((item, idx) => {
+                      const itemId = String(item.id).slice(-6).toUpperCase()
+                      const itemStatus = (idx === 0 && order.status === 'paid') ? 'Complete' : 'Incomplete'
+                      return (
+                        <tr key={item.id} className="border-b border-slate-100">
+                          <td className="py-5 px-2 font-medium">{itemId}</td>
+                          <td className="py-5 px-2">{item.item_type}</td>
+                          <td className="py-5 px-2">{itemStatus}</td>
+                          <td className="py-5 px-2">{formatDate(order.created_at)}</td>
+                          <td className="py-5 px-2 text-right font-medium">£{Number(item.amount).toFixed(2)}</td>
+                        </tr>
+                      )
+                    })
+                  )}
+                  {!editingItems && items.length === 0 && (
                     <tr className="border-b border-slate-100">
                       <td className="py-5 px-2 font-medium">#{shortId}</td>
                       <td className="py-5 px-2">{formType?.name || 'Order Item'}</td>
@@ -1019,32 +1455,34 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
             </div>
 
             {/* Status Actions */}
-            <div className="flex items-center gap-3 mt-16">
-              {(status !== 'abandoned' && status !== 'dead') && (
-                <button
-                  onClick={() => setOrderStatus('abandoned')}
-                  className="bg-[#dc3545] hover:bg-[#c82333] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors"
-                >
-                  Mark Dead
-                </button>
-              )}
-              {(status === 'abandoned' || status === 'dead') && (
-                <button
-                  onClick={() => setOrderStatus('processing')}
-                  className="bg-[#28a745] hover:bg-[#218838] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors"
-                >
-                  Restore Application
-                </button>
-              )}
-              {status !== 'paid' && currentRole !== 'admin' && (
-                <button
-                  onClick={() => setOrderStatus('no_answer')}
-                  className="bg-[#ffc107] hover:bg-[#e0a800] text-[#212529] text-[15px] font-medium px-8 py-3 rounded-md transition-colors"
-                >
-                  No Answer / Non-UK Phone Number
-                </button>
-              )}
-            </div>
+            {isAdminOrDirector && (
+              <div className="flex items-center gap-3 mt-16">
+                {(status !== 'abandoned' && status !== 'dead') && (
+                  <button
+                    onClick={() => setOrderStatus('abandoned')}
+                    className="bg-[#dc3545] hover:bg-[#c82333] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors"
+                  >
+                    Mark Dead
+                  </button>
+                )}
+                {(status === 'abandoned' || status === 'dead') && (
+                  <button
+                    onClick={() => setOrderStatus('processing')}
+                    className="bg-[#28a745] hover:bg-[#218838] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors"
+                  >
+                    Restore Application
+                  </button>
+                )}
+                {status !== 'paid' && currentRole !== 'admin' && (
+                  <button
+                    onClick={() => setOrderStatus('no_answer')}
+                    className="bg-[#ffc107] hover:bg-[#e0a800] text-[#212529] text-[15px] font-medium px-8 py-3 rounded-md transition-colors"
+                  >
+                    No Answer / Non-UK Phone Number
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -1125,6 +1563,186 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
             </div>
           </div>
         )}
+
+        {/* PROCESS TAB */}
+        {activeTab === 'process' && (
+          <div className="p-10 w-full max-w-4xl bg-white min-h-full">
+            <h2 className="text-[18px] font-bold text-[#0B1B3A] mb-6">Application Process Control</h2>
+            
+            {/* Status Selection Buttons */}
+            <div className="mb-10">
+              <label className="block text-[14px] font-bold text-slate-700 mb-3">Change Application Status</label>
+              <div className="flex flex-wrap gap-3">
+                {[
+                  { value: 'awaiting', label: 'Awaiting' },
+                  { value: 'in_progress', label: 'In Progress' },
+                  { value: 'submitted', label: 'Submitted' },
+                  { value: 'completed', label: 'Completed' }
+                ].map(stage => {
+                  const isActiveStage = monitorStage === stage.value
+                  return (
+                    <button
+                      key={stage.value}
+                      disabled={saving}
+                      onClick={() => updateMonitorStage(stage.value)}
+                      className={cn(
+                        "px-6 py-3 rounded-lg text-sm font-semibold tracking-wide border transition-all flex items-center gap-2",
+                        isActiveStage
+                          ? "bg-[#0B1B3A] border-[#0B1B3A] text-white shadow-md scale-105"
+                          : "bg-white border-slate-300 text-slate-700 hover:border-[#0B1B3A] hover:text-[#0B1B3A]"
+                      )}
+                    >
+                      {saving && isActiveStage && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {stage.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Related Email Template Section */}
+            <div className="border-t border-slate-200 pt-8">
+              <h3 className="text-[16px] font-bold text-[#0B1B3A] mb-4">Related Email Template Preview</h3>
+              
+              <div className="mb-4">
+                <label className="block text-[13px] font-semibold text-slate-600 mb-2">Select Email Template</label>
+                <select
+                  value={selectedTemplateId}
+                  onChange={e => setSelectedTemplateId(e.target.value)}
+                  className="w-full max-w-[400px] h-10 px-3 bg-white border border-slate-300 rounded-md focus:border-blue-500 focus:outline-none text-[14px]"
+                >
+                  <option value="">Select a template...</option>
+                  {emailTemplates.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Template Content Preview */}
+              {selectedTemplateId ? (
+                (() => {
+                  const selectedTemplate = emailTemplates.find(t => t.id === selectedTemplateId)
+                  if (!selectedTemplate) return null
+                  const renderedSubject = renderTemplate(selectedTemplate.subject)
+                  const renderedBody = renderTemplate(selectedTemplate.body)
+
+                  return (
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 mt-6 space-y-4">
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="block text-[12px] font-extrabold text-slate-500 uppercase tracking-wider">Subject</label>
+                          <button
+                            onClick={async () => {
+                              await navigator.clipboard.writeText(renderedSubject)
+                              setCopiedSubject(true)
+                              toast.success('Subject copied!')
+                              setTimeout(() => setCopiedSubject(false), 2000)
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1"
+                          >
+                            {copiedSubject ? 'Copied!' : 'Copy Subject'}
+                          </button>
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm text-slate-800 font-semibold shadow-sm">
+                          {renderedSubject}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="block text-[12px] font-extrabold text-slate-500 uppercase tracking-wider">Email Body</label>
+                          <button
+                            onClick={async () => {
+                              await navigator.clipboard.writeText(renderedBody)
+                              setCopiedBody(true)
+                              toast.success('Email body copied!')
+                              setTimeout(() => setCopiedBody(false), 2000)
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1"
+                          >
+                            {copiedBody ? 'Copied!' : 'Copy Body'}
+                          </button>
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-lg p-5 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed shadow-sm font-medium">
+                          {renderedBody}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })()
+              ) : (
+                <div className="text-center py-8 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-slate-400 text-xs font-semibold">
+                  No template selected. Update the application status to automatically load the template.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Order Attachments Section */}
+        <div className="mx-10 my-8 border-t border-slate-200 pt-8 max-w-4xl">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h3 className="text-[16px] font-bold text-[#0B1B3A]">Order Attachments</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Documents, images, and other supporting files.</p>
+            </div>
+            {isAdminOrDirector && (
+              <div className="relative">
+                <input
+                  type="file"
+                  id="attachment-upload"
+                  className="hidden"
+                  disabled={uploadingAttachment}
+                  onChange={async e => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      await handleUploadAttachment(file)
+                    }
+                  }}
+                />
+                <label
+                  htmlFor="attachment-upload"
+                  className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[13px] font-medium px-4 py-2 rounded-md transition-colors cursor-pointer flex items-center gap-2"
+                >
+                  {uploadingAttachment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  {uploadingAttachment ? 'Uploading...' : 'Upload Attachment'}
+                </label>
+              </div>
+            )}
+          </div>
+
+          {/* Attachments List */}
+          <div className="space-y-2">
+            {(submissionReqs.attachments || []).map((att: any, idx: number) => (
+              <div key={idx} className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-lg">
+                <button
+                  onClick={() => handleViewAttachment(att.url)}
+                  className="flex items-center gap-3 text-left hover:text-blue-600 transition-colors font-medium text-slate-700 text-sm"
+                >
+                  <FileText className="h-4 w-4 text-slate-400" />
+                  <span>{att.name}</span>
+                  <span className="text-[10px] text-slate-400 font-normal">
+                    ({new Date(att.uploaded_at).toLocaleDateString()})
+                  </span>
+                </button>
+                {isAdminOrDirector && (
+                  <button
+                    onClick={() => handleDeleteAttachment(att)}
+                    className="text-red-500 hover:text-red-700 p-1 transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {(!submissionReqs.attachments || submissionReqs.attachments.length === 0) && (
+              <div className="text-center py-8 bg-slate-50/50 border border-dashed border-slate-200 rounded-lg text-slate-400 text-xs font-semibold">
+                No attachments uploaded yet.
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {copiedLink && (

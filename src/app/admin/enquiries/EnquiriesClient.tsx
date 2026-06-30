@@ -37,9 +37,10 @@ interface Enquiry {
   phone: string | null;
   created_at: string;
   assigned: { id: string; full_name: string; avatar_url?: string } | null;
-  business: { id: string; name: string } | null;
+  business: { id: string; name: string; domain?: string } | null;
   pipeline_stage: string;
   follow_up_at: string | null;
+  source?: string | null;
 }
 
 export default function EnquiriesClient({ businesses, users }: { businesses: Business[]; users: User[] }) {
@@ -51,6 +52,8 @@ export default function EnquiriesClient({ businesses, users }: { businesses: Bus
   const [search, setSearch] = useState('')
   const [view, setView] = useState<'kanban' | 'list'>('kanban')
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [siteFilter, setSiteFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState('all')
 
   const fetchEnquiries = useCallback(async () => {
     setLoading(true)
@@ -81,7 +84,39 @@ export default function EnquiriesClient({ businesses, users }: { businesses: Bus
     setEnquiries(prev => prev.map(e => e.id === id ? { ...e, pipeline_stage: stage } : e))
   }
 
-  const byStage = (stage: Stage) => enquiries.filter(e => e.pipeline_stage === stage)
+  const filteredEnquiries = enquiries.filter(enq => {
+    if (siteFilter !== 'all') {
+      const label = (enq.business?.domain || '').toLowerCase()
+      const isLRT = label.includes('transfers') || label.includes('lrt')
+      const isOLR = label.includes('online') || label.includes('ort') || label.includes('olr')
+      if (siteFilter === 'lrt' && !isLRT) return false
+      if (siteFilter === 'olr' && !isOLR) return false
+    }
+
+    if (dateFilter !== 'all') {
+      const createdDate = new Date(enq.created_at)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      
+      const yesterday = new Date(today)
+      yesterday.setDate(yesterday.getDate() - 1)
+
+      const sevenDaysAgo = new Date(today)
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+
+      const thirtyDaysAgo = new Date(today)
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+      if (dateFilter === 'today' && createdDate < today) return false
+      if (dateFilter === 'yesterday' && (createdDate < yesterday || createdDate >= today)) return false
+      if (dateFilter === '7days' && createdDate < sevenDaysAgo) return false
+      if (dateFilter === '30days' && createdDate < thirtyDaysAgo) return false
+    }
+
+    return true
+  })
+
+  const byStage = (stage: Stage) => filteredEnquiries.filter(e => e.pipeline_stage === stage)
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -89,14 +124,37 @@ export default function EnquiriesClient({ businesses, users }: { businesses: Bus
       <div className="flex items-center gap-3 px-5 py-3 border-b bg-surface-gray-1">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-gray-4" />
-          <input className="form-input pl-8 py-1 w-56 text-sm" placeholder="Search enquiries..."
+          <input className="form-input pl-8 py-1 w-44 text-sm" placeholder="Search enquiries..."
             value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+
+        <select
+          className="form-input py-1 text-xs w-36 bg-white border-slate-200"
+          value={siteFilter}
+          onChange={e => setSiteFilter(e.target.value)}
+        >
+          <option value="all">All Sites</option>
+          <option value="olr">OLR (Online Land Registry)</option>
+          <option value="lrt">LRT (Land Registry Transfers)</option>
+        </select>
+
+        <select
+          className="form-input py-1 text-xs w-36 bg-white border-slate-200"
+          value={dateFilter}
+          onChange={e => setDateFilter(e.target.value)}
+        >
+          <option value="all">All Dates</option>
+          <option value="today">Today</option>
+          <option value="yesterday">Yesterday</option>
+          <option value="7days">Last 7 Days</option>
+          <option value="30days">Last 30 Days</option>
+        </select>
+
         <div className="flex rounded-md border overflow-hidden ml-auto">
           {(['kanban', 'list'] as const).map(v => (
             <button key={v} onClick={() => setView(v)}
-              className={cn('px-3 py-1.5 text-xs font-medium transition-colors',
-                view === v ? 'bg-navy text-white' : 'bg-white text-ink-gray-5 hover:bg-surface-gray-1')}>
+              className={cn('px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer',
+                view === v ? 'bg-[#0b1b3a] text-white' : 'bg-white text-ink-gray-5 hover:bg-surface-gray-1')}>
               {v.charAt(0).toUpperCase() + v.slice(1)}
             </button>
           ))}
@@ -131,7 +189,31 @@ export default function EnquiriesClient({ businesses, users }: { businesses: Bus
                       <div className="flex items-center justify-between mt-2">
                         <span className="text-xs text-ink-gray-4">{timeAgo(enq.created_at)}</span>
                         {enq.assigned && (
-                          <Avatar label={enq.assigned.full_name} size="xs" />
+                          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 max-w-[120px] truncate" title={enq.assigned.full_name}>
+                            <Avatar label={enq.assigned.full_name} size="xs" />
+                            <span className="truncate">{enq.assigned.full_name}</span>
+                          </div>
+                        )}
+                      </div>
+                      {/* Differentiator & Source */}
+                      <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                        {(() => {
+                          const dom = (enq.business?.domain || '').toLowerCase()
+                          const isLRT = dom.includes('transfers') || dom.includes('lrt')
+                          const label = isLRT ? 'LRT' : 'OLR'
+                          const badgeColor = isLRT 
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-100 text-[9px] px-1.5 py-0.5 rounded font-black' 
+                            : 'bg-indigo-50 text-indigo-700 border border-indigo-100 text-[9px] px-1.5 py-0.5 rounded font-black'
+                          return (
+                            <span className={badgeColor}>
+                              {label}
+                            </span>
+                          )
+                        })()}
+                        {enq.source && (
+                          <span className="bg-slate-100 text-slate-600 border border-slate-200 text-[9px] px-1.5 py-0.5 rounded font-bold">
+                            {enq.source}
+                          </span>
                         )}
                       </div>
                       {/* Quick move buttons */}
@@ -164,14 +246,17 @@ export default function EnquiriesClient({ businesses, users }: { businesses: Bus
               </tr>
             </thead>
             <tbody>
-              {enquiries.map(enq => (
+              {filteredEnquiries.map(enq => (
                 <tr key={enq.id} className="cursor-pointer"
                   onClick={() => router.push(`/admin/enquiries/${enq.id}`)}>
                   <td>
                     <div className="font-medium">{enq.customer_name || '—'}</div>
                     <div className="text-xs text-ink-gray-4">{enq.email}</div>
                   </td>
-                  <td className="text-sm">{enq.business?.name}</td>
+                  <td className="text-sm">
+                    <div>{enq.business?.name}</div>
+                    {enq.source && <div className="text-[10px] text-slate-400 font-semibold">{enq.source}</div>}
+                  </td>
                   <td>{stageBadge(enq.pipeline_stage)}</td>
                   <td>
                     {enq.assigned && (
@@ -187,7 +272,7 @@ export default function EnquiriesClient({ businesses, users }: { businesses: Bus
                   <td className="text-xs">{timeAgo(enq.created_at)}</td>
                 </tr>
               ))}
-              {enquiries.length === 0 && (
+              {filteredEnquiries.length === 0 && (
                 <tr><td colSpan={6} className="text-center py-10 text-ink-gray-4 text-sm">No enquiries found</td></tr>
               )}
             </tbody>

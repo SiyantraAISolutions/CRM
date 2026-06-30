@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Users, UserPlus, Search, ArrowLeft, Calendar, Clock, Phone, Video, MapPin, FileText, CheckCircle2, AlertCircle, Trash2, CalendarDays, RefreshCw } from 'lucide-react'
+import { Users, UserPlus, Search, ArrowLeft, Calendar, Clock, Phone, Video, MapPin, FileText, CheckCircle2, AlertCircle, Trash2, CalendarDays, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { formatDateTime } from '@/lib/utils'
@@ -54,12 +54,39 @@ export default function AppointmentsClient() {
   const [solicitors, setSolicitors] = useState<Solicitor[]>([])
   const [selectedSolId, setSelectedSolId] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
+  const [currentMonth, setCurrentMonth] = useState(new Date())
   const [availableSlots, setAvailableSlots] = useState<string[]>([])
   const [loadingSlots, setLoadingSlots] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState('')
   const [meetingType, setMeetingType] = useState<'phone' | 'zoom' | 'in_person'>('phone')
   const [internalNotes, setInternalNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear()
+    const month = date.getMonth()
+    const firstDay = new Date(year, month, 1)
+    const lastDay = new Date(year, month + 1, 0)
+    const startOfWeek = firstDay.getDay()
+    const totalDays = lastDay.getDate()
+    
+    const days: (Date | null)[] = []
+    for (let i = 0; i < startOfWeek; i++) {
+      days.push(null)
+    }
+    for (let i = 1; i <= totalDays; i++) {
+      days.push(new Date(year, month, i))
+    }
+    return days
+  }
+
+  const navigateMonth = (direction: 'prev' | 'next') => {
+    setCurrentMonth(prev => {
+      const year = prev.getFullYear()
+      const month = prev.getMonth()
+      return new Date(year, month + (direction === 'prev' ? -1 : 1), 1)
+    })
+  }
 
   // Manual Customer Details (for new customers)
   const [newCustomerName, setNewCustomerName] = useState('')
@@ -738,11 +765,10 @@ export default function AppointmentsClient() {
               <div className="bg-white border border-purple-100 rounded-2xl p-6 shadow-sm space-y-4">
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide border-b pb-2">Meeting Type</h3>
                 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {[
                     { type: 'phone', label: 'Phone', icon: Phone },
                     { type: 'zoom', label: 'Zoom', icon: Video },
-                    { type: 'in_person', label: 'In Person', icon: MapPin },
                   ].map(m => {
                     const Icon = m.icon
                     const isSelected = meetingType === m.type
@@ -786,18 +812,74 @@ export default function AppointmentsClient() {
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide border-b pb-2">Calendar & Availability</h3>
                 
                 <div>
-                  <label className="form-label text-[10px] mb-1.5">Select Appointment Date</label>
-                  <input
-                    type="date"
-                    required
-                    min={new Date().toISOString().split('T')[0]}
-                    value={selectedDate}
-                    onChange={(e) => {
-                      setSelectedDate(e.target.value)
-                      setSelectedSlot('')
-                    }}
-                    className="form-input text-xs w-full"
-                  />
+                  <label className="form-label text-[10px] mb-2 block">Select Appointment Date</label>
+                  
+                  {/* Custom Visual Calendar */}
+                  <div className="border border-purple-100 rounded-xl p-3 bg-slate-50/50">
+                    <div className="flex items-center justify-between mb-3 px-1">
+                      <span className="text-xs font-bold text-slate-800">
+                        {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                      </span>
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => navigateMonth('prev')}
+                          className="p-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors cursor-pointer"
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigateMonth('next')}
+                          className="p-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors cursor-pointer"
+                        >
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Weekday Headers */}
+                    <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
+                      {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                        <div key={d} className="py-0.5">{d}</div>
+                      ))}
+                    </div>
+
+                    {/* Days Grid */}
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {getDaysInMonth(currentMonth).map((day, idx) => {
+                        if (!day) return <div key={`empty-${idx}`} />
+
+                        const formatted = day.toISOString().split('T')[0]
+                        const isSelected = selectedDate === formatted
+                        const isPast = formatted < new Date().toISOString().split('T')[0]
+                        const isToday = new Date().toDateString() === day.toDateString()
+
+                        return (
+                          <button
+                            key={formatted}
+                            type="button"
+                            disabled={isPast}
+                            onClick={() => {
+                              setSelectedDate(formatted)
+                              setSelectedSlot('')
+                            }}
+                            className={`py-1.5 rounded-lg text-xs font-bold transition-all duration-150 cursor-pointer ${
+                              isPast
+                                ? 'text-slate-300 cursor-not-allowed font-normal'
+                                : isSelected
+                                  ? 'bg-purple-600 text-white shadow-sm scale-105'
+                                  : isToday
+                                    ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                                    : 'bg-white border border-slate-200 text-slate-700 hover:border-purple-300 hover:text-purple-700'
+                            }`}
+                          >
+                            {day.getDate()}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Available Slots */}

@@ -362,7 +362,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
 
 
         {/* Email Templates List */}
-        {!collapsed && (
+        {!collapsed && userRole !== 'sales' && (
           <div className="pt-4 pb-2 mt-2 border-t border-purple-100">
             <button
               onClick={() => setTemplatesExpanded(!templatesExpanded)}
