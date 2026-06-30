@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 200" fill="none">
+  <defs>
+    <!-- Gold Gradient -->
+    <linearGradient id="gold-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCE881" />
+      <stop offset="30%" stop-color="#C7A04B" />
+      <stop offset="70%" stop-color="#8F6B29" />
+      <stop offset="100%" stop-color="#D4AF37" />
+    </linearGradient>
+    
+    <!-- Navy Gradient -->
+    <linearGradient id="navy-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1B2A4A" />
+      <stop offset="100%" stop-color="#0B1528" />
+    </linearGradient>
+
+    <!-- Subtle Drop Shadow -->
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000000" flood-opacity="0.08" />
+    </filter>
+  </defs>
+
+  <!-- Premium Rounded Box -->
+  <rect x="10" y="10" width="480" height="180" rx="16" fill="url(#navy-grad)" stroke="url(#gold-grad)" stroke-width="4" filter="url(#shadow)"/>
+
+  <!-- Inner Gold dashed border for a technical precision look -->
+  <rect x="22" y="22" width="456" height="156" rx="10" stroke="url(#gold-grad)" stroke-width="1.2" stroke-dasharray="8 4" opacity="0.6"/>
+
+  <!-- KWS Letters (Gold Gradient, elegant Serif) -->
+  <text x="250" y="105" text-anchor="middle"
+    font-family="'Cinzel', 'Playfair Display', 'Georgia', serif"
+    font-size="68" font-weight="700" letter-spacing="8" fill="url(#gold-grad)">KWS</text>
+
+  <!-- MANAGEMENT SERVICES text (Gold Gradient, Sans-serif modern spacing) -->
+  <text x="250" y="152" text-anchor="middle"
+    font-family="'Montserrat', 'Helvetica Neue', 'Arial', sans-serif"
+    font-size="16" font-weight="700" letter-spacing="9" fill="url(#gold-grad)">MANAGEMENT SERVICES</text>
+</svg>

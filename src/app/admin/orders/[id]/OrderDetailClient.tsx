@@ -65,7 +65,7 @@ const ITEM_TYPES = [
   'TP1 Transfer of Part',
   'TR1 Add/Remove Proprietor',
   'Deed Search',
-  'Map / Land Search (no address)',
+  'Map / Land Search',
   'Property Ownership (Register + Plan)',
   'Property Alert Service',
   'Transfer of Equity',
@@ -81,7 +81,7 @@ const DEFAULT_PRICES: Record<string, number> = {
   'Title Register': 36.00,
   'Title Plan': 36.00,
   'Deed Search': 45.00,
-  'Map / Land Search (no address)': 41.00,
+  'Map / Land Search': 41.00,
   'Property Ownership (Register + Plan)': 60.00,
   'Property Alert Service': 45.00,
   'Transfer of Equity': 450.00,
@@ -1454,13 +1454,57 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
               </div>
             </div>
 
+            {/* Stripe Elements Payment Form */}
+            {showPaymentForm && paymentClientSecret && (
+              <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mt-8 max-w-xl">
+                <div className="section-heading flex items-center gap-2 mb-4">
+                  <CreditCard className="h-4 w-4" />
+                  Secure Card Payment
+                </div>
+                <Elements
+                  stripe={stripePromise}
+                  options={{
+                    clientSecret: paymentClientSecret,
+                    appearance: {
+                      theme: 'stripe',
+                      variables: { colorPrimary: '#16243B', borderRadius: '8px' },
+                    },
+                  }}
+                >
+                  <StripePaymentForm
+                    orderId={order.id}
+                    amount={total}
+                    onSuccess={() => {
+                      setShowPaymentForm(false)
+                      setPaymentClientSecret(null)
+                      setOrder(prev => ({ ...prev, status: 'paid' }))
+                      router.refresh()
+                    }}
+                    onCancel={() => {
+                      setShowPaymentForm(false)
+                      setPaymentClientSecret(null)
+                    }}
+                  />
+                </Elements>
+              </div>
+            )}
+
             {/* Status Actions */}
             {isAdminOrDirector && (
-              <div className="flex items-center gap-3 mt-16">
+              <div className="flex flex-wrap items-center gap-3 mt-16">
+                {status !== 'paid' && !showPaymentForm && (
+                  <button
+                    onClick={startTakePayment}
+                    className="bg-[#28a745] hover:bg-[#218838] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <CreditCard className="h-4 w-4" />
+                    Take Payment
+                  </button>
+                )}
                 {(status !== 'abandoned' && status !== 'dead') && (
                   <button
                     onClick={() => setOrderStatus('abandoned')}
-                    className="bg-[#dc3545] hover:bg-[#c82333] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors"
+                    className="bg-[#dc3545] hover:bg-[#c82333] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
                   >
                     Mark Dead
                   </button>
@@ -1468,7 +1512,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                 {(status === 'abandoned' || status === 'dead') && (
                   <button
                     onClick={() => setOrderStatus('processing')}
-                    className="bg-[#28a745] hover:bg-[#218838] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors"
+                    className="bg-[#28a745] hover:bg-[#218838] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
                   >
                     Restore Application
                   </button>
@@ -1476,7 +1520,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                 {status !== 'paid' && currentRole !== 'admin' && (
                   <button
                     onClick={() => setOrderStatus('no_answer')}
-                    className="bg-[#ffc107] hover:bg-[#e0a800] text-[#212529] text-[15px] font-medium px-8 py-3 rounded-md transition-colors"
+                    className="bg-[#ffc107] hover:bg-[#e0a800] text-[#212529] text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
                   >
                     No Answer / Non-UK Phone Number
                   </button>

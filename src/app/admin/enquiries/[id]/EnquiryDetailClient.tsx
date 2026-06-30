@@ -9,7 +9,7 @@ import Badge from '@/components/ui/Badge'
 import Avatar from '@/components/ui/Avatar'
 import { toast } from 'sonner'
 
-type Tab = 'information' | 'process' | 'notes'
+type Tab = 'information' | 'notes'
 
 interface User {
   id: string
@@ -106,7 +106,6 @@ export default function EnquiryDetailClient({ enquiry, initialNotes, users }: Pr
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: 'information', label: 'Information' },
-    { id: 'process', label: 'Process / Action' },
     { id: 'notes', label: 'Notes', count: notes.length },
   ]
 
@@ -164,134 +163,135 @@ export default function EnquiryDetailClient({ enquiry, initialNotes, users }: Pr
       <div className="flex-1 overflow-y-auto p-5">
         {/* INFORMATION TAB */}
         {activeTab === 'information' && (
-          <div className="max-w-2xl space-y-6">
-            <div className="panel">
-              <div className="section-heading">Contact Information</div>
-              <table className="w-full text-sm">
-                <tbody>
-                  {infoFields.map((f, i) => (
-                    <tr key={f.label} className={cn(i % 2 === 0 ? 'bg-white' : 'bg-row-stripe/30')}>
-                      <td className="py-2.5 px-3 font-medium text-ink-gray-5 w-48">{f.label}</td>
-                      <td className="py-2.5 px-3 text-ink-gray-9">{f.value}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Custom Notes/Message Payload */}
-            {(enquiry.message || enquiry.notes) && (
-              <div className="panel space-y-4">
-                {enquiry.message && (
-                  <div>
-                    <div className="section-heading">Message</div>
-                    <p className="text-sm text-ink-gray-7 leading-relaxed whitespace-pre-wrap bg-surface-gray-1 p-3 rounded-lg border">
-                      {enquiry.message}
-                    </p>
-                  </div>
-                )}
-                {enquiry.notes && (
-                  <div>
-                    <div className="section-heading">Booking Payload Details</div>
-                    <p className="text-sm text-ink-gray-7 leading-relaxed whitespace-pre-wrap bg-surface-gray-1 p-3 rounded-lg border">
-                      {enquiry.notes}
-                    </p>
-                  </div>
-                )}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start max-w-7xl">
+            {/* Left Column: Contact & Message */}
+            <div className="space-y-6">
+              <div className="panel">
+                <div className="section-heading">Contact Information</div>
+                <table className="w-full text-sm">
+                  <tbody>
+                    {infoFields.map((f, i) => (
+                      <tr key={f.label} className={cn(i % 2 === 0 ? 'bg-white' : 'bg-row-stripe/30')}>
+                        <td className="py-2.5 px-3 font-medium text-ink-gray-5 w-48">{f.label}</td>
+                        <td className="py-2.5 px-3 text-ink-gray-9">{f.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            )}
-          </div>
-        )}
 
-        {/* PROCESS TAB */}
-        {activeTab === 'process' && (
-          <div className="max-w-2xl space-y-6">
-            {/* Status updates */}
-            <div className="panel">
-              <div className="section-heading font-semibold text-ink-gray-8 mb-3">Update Pipeline Stage</div>
-              <div className="flex flex-wrap gap-2">
-                {STAGES.map(s => (
-                  <button
-                    key={s}
-                    disabled={saving || stage === s}
-                    onClick={() => updateStage(s)}
-                    className={`px-4 py-2 rounded-md text-sm font-medium border transition-colors ${
-                      stage === s
-                        ? 'bg-navy text-white border-navy'
-                        : 'bg-white text-ink-gray-7 border-outline-gray-3 hover:border-navy hover:text-navy'
-                    }`}
-                  >
-                    {s.replace(/\b\w/g, c => c.toUpperCase())}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Enquiry Details & Assignment */}
-            <div className="panel space-y-4">
-              <div className="section-heading">Edit Enquiry Details</div>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="form-label">Customer Name</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={customerName}
-                      onChange={e => setCustomerName(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="form-label">Email Address</label>
-                    <input
-                      type="email"
-                      className="form-input"
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                    />
-                  </div>
+              {/* Custom Notes/Message Payload */}
+              {(enquiry.message || enquiry.notes) && (
+                <div className="panel space-y-4">
+                  {enquiry.message && (
+                    <div>
+                      <div className="section-heading">Message</div>
+                      <p className="text-sm text-ink-gray-7 leading-relaxed whitespace-pre-wrap bg-surface-gray-1 p-3 rounded-lg border">
+                        {enquiry.message}
+                      </p>
+                    </div>
+                  )}
+                  {enquiry.notes && (
+                    <div>
+                      <div className="section-heading">Booking Payload Details</div>
+                      <p className="text-sm text-ink-gray-7 leading-relaxed whitespace-pre-wrap bg-surface-gray-1 p-3 rounded-lg border">
+                        {enquiry.notes}
+                      </p>
+                    </div>
+                  )}
                 </div>
+              )}
+            </div>
 
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="form-label">Phone Number</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={phone}
-                      onChange={e => setPhone(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="form-label">Assign Agent</label>
-                    <select
-                      className="form-input"
-                      value={assignedTo}
-                      onChange={e => setAssignedTo(e.target.value)}
+            {/* Right Column: Process & Actions */}
+            <div className="space-y-6">
+              {/* Status updates */}
+              <div className="panel">
+                <div className="section-heading font-semibold text-ink-gray-8 mb-3">Update Pipeline Stage</div>
+                <div className="flex flex-wrap gap-2">
+                  {STAGES.map(s => (
+                    <button
+                      key={s}
+                      disabled={saving || stage === s}
+                      onClick={() => updateStage(s)}
+                      className={`px-4 py-2 rounded-md text-sm font-medium border transition-colors cursor-pointer ${
+                        stage === s
+                          ? 'bg-[#0b1b3a] text-white border-[#0b1b3a]'
+                          : 'bg-white text-ink-gray-7 border-outline-gray-3 hover:border-[#0b1b3a] hover:text-[#0b1b3a]'
+                      }`}
                     >
-                      <option value="">Unassigned</option>
-                      {users.map(u => (
-                        <option key={u.id} value={u.id}>{u.full_name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="form-label">Follow Up Date</label>
-                    <input
-                      type="date"
-                      className="form-input"
-                      value={followUpAt}
-                      onChange={e => setFollowUpAt(e.target.value)}
-                    />
-                  </div>
+                      {s.replace(/\b\w/g, c => c.toUpperCase())}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <div className="flex justify-end pt-2">
-                <button onClick={saveProcessSettings} disabled={saving} className="btn-primary gap-1">
-                  <Save className="h-4 w-4" />
-                  Save Details
-                </button>
+              {/* Enquiry Details & Assignment */}
+              <div className="panel space-y-4">
+                <div className="section-heading">Edit Enquiry Details</div>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="form-label">Customer Name</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={customerName}
+                        onChange={e => setCustomerName(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">Email Address</label>
+                      <input
+                        type="email"
+                        className="form-input"
+                        value={email}
+                        onChange={e => setEmail(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="form-label">Phone Number</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={phone}
+                        onChange={e => setPhone(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">Assign Agent</label>
+                      <select
+                        className="form-input"
+                        value={assignedTo}
+                        onChange={e => setAssignedTo(e.target.value)}
+                      >
+                        <option value="">Unassigned</option>
+                        {users.map(u => (
+                          <option key={u.id} value={u.id}>{u.full_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="form-label">Follow Up Date</label>
+                      <input
+                        type="date"
+                        className="form-input"
+                        value={followUpAt}
+                        onChange={e => setFollowUpAt(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button onClick={saveProcessSettings} disabled={saving} className="btn-primary gap-1 cursor-pointer">
+                    <Save className="h-4 w-4" />
+                    Save Details
+                  </button>
+                </div>
               </div>
             </div>
           </div>

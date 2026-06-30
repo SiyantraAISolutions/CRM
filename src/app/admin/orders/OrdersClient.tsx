@@ -22,7 +22,7 @@ const statusBadge = (status: string) => {
     dead: { variant: 'red', label: 'Dead' },
     no_answer: { variant: 'orange', label: 'No Answer' },
     processing: { variant: 'blue', label: 'Processing' },
-    lead: { variant: 'orange', label: 'Lead' },
+    lead: { variant: 'orange', label: 'New' },
     abandoned: { variant: 'gray', label: 'Abandoned' },
   }
   const s = map[status] ?? { variant: 'gray', label: status }

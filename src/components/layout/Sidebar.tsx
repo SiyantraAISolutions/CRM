@@ -130,7 +130,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
             { code: 'TITLE_REGISTER', name: 'Title Register' },
             { code: 'TITLE_PLAN', name: 'Title Plan' },
             { code: 'DEED_SEARCH', name: 'Deed Search', isStatic: true },
-            { code: 'MAP_SEARCH', name: 'Map / Land Search (no address)' },
+            { code: 'MAP_SEARCH', name: 'Map / Land Search' },
             { code: 'PROPERTY_OWNERSHIP', name: 'Property Ownership (Register + Plan)' },
             { code: 'PROPERTY_ALERT', name: 'Property Alert Service', isStatic: true },
             { code: 'TR1', name: 'Transfer of Equity' },
@@ -243,20 +243,20 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
       )}>
         {collapsed
           ? (
-            <div className="bg-slate-50/60 border border-slate-100 p-1.5 rounded-lg shadow-sm flex items-center justify-center">
+            <div className="flex items-center justify-center">
               <img 
-                src="/kws-removebg-preview.png" 
+                src="/kws-logo.svg" 
                 alt="KWS Logo" 
-                className="h-8 w-auto object-contain" 
+                className="h-5 w-auto object-contain" 
               />
             </div>
           ) : (
-            <div className="flex items-center justify-center w-full px-2">
-              <div className="bg-slate-50/50 border border-slate-100/80 p-3.5 rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.03)] flex items-center justify-center w-full hover:bg-slate-50 transition-all duration-200">
+            <div className="flex items-center justify-center w-full px-4">
+              <div className="flex items-center justify-center w-full transition-all duration-200">
                 <img 
-                  src="/kws-removebg-preview.png" 
+                  src="/kws-logo.svg" 
                   alt="KWS Logo" 
-                  className="h-16 w-auto object-contain transition-transform duration-200 hover:scale-[1.02]" 
+                  className="h-[84px] w-auto object-contain transition-transform duration-200 hover:scale-[1.05]" 
                 />
               </div>
             </div>

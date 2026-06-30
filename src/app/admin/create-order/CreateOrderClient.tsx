@@ -33,7 +33,7 @@ const ITEM_TYPES = [
   'TP1 Transfer of Part',
   'TR1 Add/Remove Proprietor',
   'Deed Search',
-  'Map / Land Search (no address)',
+  'Map / Land Search',
   'Property Ownership (Register + Plan)',
   'Property Alert Service',
   'Transfer of Equity',
@@ -49,7 +49,7 @@ const DEFAULT_PRICES: Record<string, number> = {
   'Title Register': 36.00,
   'Title Plan': 36.00,
   'Deed Search': 45.00,
-  'Map / Land Search (no address)': 41.00,
+  'Map / Land Search': 41.00,
   'Property Ownership (Register + Plan)': 60.00,
   'Property Alert Service': 45.00,
   'Transfer of Equity': 450.00,
@@ -118,6 +118,7 @@ export default function CreateOrderClient({ brands }: Props) {
   const [propertyValue, setPropertyValue] = useState('')
   const [hmlrFee, setHmlrFee] = useState(0)
   const [termsAccepted, setTermsAccepted] = useState(false)
+  const [creationNotes, setCreationNotes] = useState('')
 
   // Payment mode
   const [paymentMode, setPaymentMode] = useState<'link' | 'card' | null>(null)
@@ -344,6 +345,15 @@ export default function CreateOrderClient({ brands }: Props) {
       message: `Order created via ${interactionLabel}`,
       category: 'Order Created',
     })
+
+    if (creationNotes.trim()) {
+      await supabase.from('order_notes').insert({
+        order_id: newOrder.id,
+        user_id: user?.id,
+        message: creationNotes,
+        category: 'Creation Note',
+      })
+    }
 
     return newOrder
   }
@@ -1064,6 +1074,18 @@ export default function CreateOrderClient({ brands }: Props) {
             </div>
           </div>
 
+
+          {/* Notes */}
+          <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+            <div className="section-heading mb-2">Order Notes / Comments</div>
+            <textarea
+              className="form-input w-full resize-none text-xs"
+              rows={3}
+              placeholder="Add any internal comments or notes about this order..."
+              value={creationNotes}
+              onChange={e => setCreationNotes(e.target.value)}
+            />
+          </div>
 
           {/* T&Cs */}
           <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-800">
