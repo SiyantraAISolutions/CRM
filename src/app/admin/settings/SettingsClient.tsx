@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Save, Building2, CreditCard, Globe, Calendar, Link2, AlertCircle } from 'lucide-react'
+import { Save, Building2, CreditCard, Globe, Calendar, Link2, AlertCircle, Phone } from 'lucide-react'
 
 interface Business {
   id: string; name: string; domain?: string; colour?: string
@@ -13,14 +13,16 @@ interface Business {
 export default function SettingsClient({
   settings: initialSettings,
   businesses: initialBusinesses,
+  users = [],
 }: {
   settings: Record<string, string>
   businesses: Business[]
+  users?: { id: string; full_name: string }[]
 }) {
   const supabase = createClient()
   const [settings, setSettings] = useState(initialSettings)
   const [businesses, setBusinesses] = useState(initialBusinesses)
-  const [activeTab, setActiveTab] = useState<'general' | 'businesses' | 'payments' | 'calendly'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'businesses' | 'payments' | 'calendly' | 'sipgate'>('general')
   const [saving, setSaving] = useState(false)
   const [editingBiz, setEditingBiz] = useState<Business | null>(null)
 
@@ -106,6 +108,7 @@ export default function SettingsClient({
     { id: 'businesses' as const, label: 'Businesses', icon: Building2 },
     { id: 'payments' as const, label: 'Payments', icon: CreditCard },
     { id: 'calendly' as const, label: 'Calendly', icon: Calendar },
+    { id: 'sipgate' as const, label: 'Sipgate', icon: Phone },
   ]
 
   return (
@@ -401,6 +404,105 @@ export default function SettingsClient({
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'sipgate' && (
+          <div className="max-w-xl space-y-5">
+            <h2 className="text-lg font-bold text-ink-gray-9">Sipgate Calling Settings</h2>
+            <p className="text-sm text-ink-gray-5">
+              Configure Click-to-Call API settings and map CRM users to their Sipgate extensions.
+            </p>
+
+            <div className="panel space-y-4">
+              <h3 className="text-sm font-semibold text-ink-gray-8 pb-1 border-b">API Configuration</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">Token ID</label>
+                  <input className="form-input" placeholder="token-XXXXXX"
+                    value={settings['sipgate_token_id'] ?? ''}
+                    onChange={e => setSettings(s => ({ ...s, sipgate_token_id: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="form-label">Token Secret</label>
+                  <input type="password" className="form-input" placeholder="e68ead46-..."
+                    value={settings['sipgate_token_secret'] ?? ''}
+                    onChange={e => setSettings(s => ({ ...s, sipgate_token_secret: e.target.value }))} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">Default Caller ID (Outbound Phone)</label>
+                  <input className="form-input" placeholder="443335770077"
+                    value={settings['sipgate_caller_id'] ?? ''}
+                    onChange={e => setSettings(s => ({ ...s, sipgate_caller_id: e.target.value }))} />
+                  <p className="text-[10px] text-ink-gray-4 mt-1">Must be verified in Sipgate and in E.164 format (e.g. 44...)</p>
+                </div>
+                <div>
+                  <label className="form-label">Default Device ID</label>
+                  <input className="form-input" placeholder="e0"
+                    value={settings['sipgate_default_device_id'] ?? 'e0'}
+                    onChange={e => setSettings(s => ({ ...s, sipgate_default_device_id: e.target.value }))} />
+                  <p className="text-[10px] text-ink-gray-4 mt-1">Typical extensions: e0 (VoIP), x0 (External), y0 (Mobile)</p>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-surface-blue border border-accent-blue/20 px-4 py-3 text-sm text-ink-blue">
+                <div className="font-semibold mb-1">sipgate.io Webhook URL:</div>
+                <div className="flex items-center gap-2">
+                  <code className="text-xs bg-white/60 px-1.5 py-0.5 rounded border border-accent-blue/20 flex-1 truncate select-all">
+                    {typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/sipgate` : 'https://your-domain.com/api/webhooks/sipgate'}
+                  </code>
+                  <button
+                    onClick={() => {
+                      const url = typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/sipgate` : 'https://your-domain.com/api/webhooks/sipgate';
+                      navigator.clipboard.writeText(url);
+                      toast.success('Webhook URL copied!');
+                    }}
+                    className="btn-xs btn-outline bg-white hover:bg-slate-50 py-1"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <p className="text-[11px] text-ink-blue/80 mt-1.5">
+                  Paste this URL in your Sipgate Console under Webhooks (incoming, answer, hangup events).
+                </p>
+              </div>
+            </div>
+
+            <div className="panel space-y-4">
+              <h3 className="text-sm font-semibold text-ink-gray-8 pb-1 border-b">CRM User & Sipgate Mapping</h3>
+              <p className="text-xs text-ink-gray-4">
+                Map CRM users to their Sipgate Device ID (for Click-to-Call) and Sipgate Username (for Realtime profile routing when they answer calls).
+              </p>
+
+              <div className="space-y-3 max-h-[250px] overflow-y-auto pr-1">
+                {users.map(u => (
+                  <div key={u.id} className="flex items-center justify-between gap-4 p-2.5 rounded-lg border bg-surface-gray-1 text-sm">
+                    <div className="font-medium text-ink-gray-9 flex-1 truncate">{u.full_name}</div>
+                    <div className="flex gap-2">
+                      <input
+                        className="form-input max-w-[100px] h-8 text-xs py-1"
+                        placeholder="Device (e.g. e0)"
+                        value={settings[`sipgate_device_user_${u.id}`] ?? ''}
+                        onChange={e => setSettings(s => ({ ...s, [`sipgate_device_user_${u.id}`]: e.target.value }))}
+                      />
+                      <input
+                        className="form-input max-w-[140px] h-8 text-xs py-1"
+                        placeholder="Sipgate User Name"
+                        value={settings[`sipgate_username_user_${u.id}`] ?? ''}
+                        onChange={e => setSettings(s => ({ ...s, [`sipgate_username_user_${u.id}`]: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <button onClick={saveAllSettings} disabled={saving} className="btn-primary gap-1">
+              <Save className="h-4 w-4" />
+              {saving ? 'Saving...' : 'Save Sipgate Settings'}
+            </button>
           </div>
         )}
       </div>

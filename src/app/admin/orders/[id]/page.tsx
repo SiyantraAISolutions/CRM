@@ -1,4 +1,5 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import LayoutHeader from '@/components/layout/LayoutHeader'
 import Breadcrumbs from '@/components/layout/Breadcrumbs'
@@ -27,6 +28,19 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
   if (!order) notFound()
 
+  // Fetch current user details
+  const clientSupabase = await createClient()
+  const { data: { user } } = await clientSupabase.auth.getUser()
+  let currentUserName = ''
+  if (user) {
+    const { data: profile } = await supabase
+      .from('users')
+      .select('full_name')
+      .eq('id', user.id)
+      .single()
+    currentUserName = profile?.full_name || ''
+  }
+
   // Related orders (same email)
   const { data: relatedOrders } = await supabase
     .from('orders')
@@ -53,6 +67,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       <OrderDetailClient
         order={order}
         relatedOrders={relatedOrders ?? []}
+        currentUserName={currentUserName}
       />
     </div>
   )

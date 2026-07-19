@@ -16,6 +16,7 @@ export default async function SettingsPage() {
 
   const { data: settings } = await supabase.from('settings').select('key, value')
   const { data: businesses } = await supabase.from('businesses').select('*').order('name')
+  const { data: users } = await supabase.from('users').select('id, full_name').order('full_name')
 
   const settingsMap = Object.fromEntries((settings ?? []).map(s => [s.key, s.value]))
 
@@ -24,7 +25,7 @@ export default async function SettingsPage() {
       <LayoutHeader
         left={<Breadcrumbs items={[{ label: 'Settings' }]} />}
       />
-      <SettingsClient settings={settingsMap} businesses={businesses ?? []} />
+      <SettingsClient settings={settingsMap} businesses={businesses ?? []} users={users ?? []} />
     </div>
   )
 }

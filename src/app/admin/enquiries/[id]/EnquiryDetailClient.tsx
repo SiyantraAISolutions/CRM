@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Save } from 'lucide-react'
+import { Save, Phone } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatDateTime, timeAgo, cn } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -51,6 +51,30 @@ export default function EnquiryDetailClient({ enquiry, initialNotes, users }: Pr
   const [newNote, setNewNote] = useState('')
   const [notes, setNotes] = useState<EnquiryNote[]>(initialNotes)
   const [saving, setSaving] = useState(false)
+  const [dialing, setDialing] = useState(false)
+
+  async function handleDial(num: string) {
+    if (!num || num === '—') return
+    setDialing(true)
+    const toastId = toast.loading(`Initiating Sipgate call to ${num}...`)
+    try {
+      const res = await fetch('/api/sipgate/call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callee: num }),
+      })
+      if (res.ok) {
+        toast.success('Call initiated! Pick up your handset or softphone.', { id: toastId })
+      } else {
+        const err = await res.json()
+        toast.error(`Sipgate call failed: ${err.error || 'Unknown error'}`, { id: toastId })
+      }
+    } catch (e: any) {
+      toast.error(`Error: ${e.message}`, { id: toastId })
+    } finally {
+      setDialing(false)
+    }
+  }
 
   const [customerName, setCustomerName] = useState(enquiry.customer_name || '')
   const [email, setEmail] = useState(enquiry.email || '')
@@ -173,7 +197,19 @@ export default function EnquiryDetailClient({ enquiry, initialNotes, users }: Pr
                     {infoFields.map((f, i) => (
                       <tr key={f.label} className={cn(i % 2 === 0 ? 'bg-white' : 'bg-row-stripe/30')}>
                         <td className="py-2.5 px-3 font-medium text-ink-gray-5 w-48">{f.label}</td>
-                        <td className="py-2.5 px-3 text-ink-gray-9">{f.value}</td>
+                        <td className="py-2.5 px-3 text-ink-gray-9 flex items-center gap-2">
+                          <span>{f.value}</span>
+                          {f.label === 'Phone Number' && f.value && f.value !== '—' && (
+                            <button
+                              onClick={() => handleDial(String(f.value))}
+                              disabled={dialing}
+                              title="Call via Sipgate"
+                              className="p-1 rounded text-blue-600 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50 transition-colors"
+                            >
+                              <Phone className="h-4 w-4" />
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

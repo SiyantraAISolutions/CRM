@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import { 
-  Search, ExternalLink, Clock, Zap, Upload, Eye, Trash2, Loader2, FileText, CheckCircle
+  Search, ExternalLink, Clock, Zap, Upload, Eye, Trash2, Loader2, FileText, CheckCircle, X
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -55,6 +55,17 @@ export default function MonitorClient({ formTypes }: Props) {
   const [uploadingId, setUploadingId] = useState<string | null>(null)
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
+  // Logged-in user state
+  const [currentName, setCurrentName] = useState('')
+
+  // Upload Modal State
+  const [showUploadModal, setShowUploadModal] = useState(false)
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [selectedOrderReqs, setSelectedOrderReqs] = useState<any>(null)
+  const [uploadTitle, setUploadTitle] = useState('')
+  const [uploadType, setUploadType] = useState('File Upload')
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+
   const fetchOrders = useCallback(async () => {
     setLoading(true)
     const formTypeIds = formTypes.map(f => f.id)
@@ -88,11 +99,21 @@ export default function MonitorClient({ formTypes }: Props) {
       })
       .subscribe()
 
+    // Fetch user profile info client-side
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        supabase.from('users').select('full_name').eq('id', data.user.id).single()
+          .then(({ data: profile }) => {
+            setCurrentName(profile?.full_name ?? '')
+          })
+      }
+    })
+
     return () => { supabase.removeChannel(channel) }
   }, [fetchOrders, supabase])
 
   // File Upload logic
-  const handleUpload = async (orderId: string, file: File, currentReqs: any) => {
+  const handleUpload = async (orderId: string, file: File, currentReqs: any, submissionTitle?: string, submissionType?: string) => {
     setUploadingId(orderId)
     try {
       const fileExt = file.name.split('.').pop()
@@ -109,7 +130,14 @@ export default function MonitorClient({ formTypes }: Props) {
         return
       }
 
-      const newReqs = { ...currentReqs, docs_uploaded: true }
+      const newReqs = { 
+        ...currentReqs, 
+        docs_uploaded: true,
+        document_title: submissionTitle || file.name,
+        document_type: submissionType || 'File Upload',
+        uploaded_by: currentName || 'Admin',
+        uploaded_at: new Date().toISOString()
+      }
       const { error: updateError } = await supabase
         .from('orders')
         .update({
@@ -124,6 +152,16 @@ export default function MonitorClient({ formTypes }: Props) {
         console.error(updateError)
       } else {
         toast.success('File uploaded successfully!')
+        
+        // Log timeline note
+        const { data: userData } = await supabase.auth.getUser()
+        await supabase.from('order_notes').insert({ 
+          order_id: orderId, 
+          user_id: userData.user?.id, 
+          message: `Uploaded proof/document: ${submissionTitle || file.name} (${submissionType || 'File Upload'}) by ${currentName || 'Admin'}`, 
+          category: 'Upload' 
+        })
+        
         fetchOrders()
       }
     } catch (err) {
@@ -373,29 +411,22 @@ export default function MonitorClient({ formTypes }: Props) {
                               </button>
                             </>
                           ) : (
-                            <>
-                              <input 
-                                type="file" 
-                                ref={el => { fileInputRefs.current[order.id] = el }}
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0]
-                                  if (file) handleUpload(order.id, file, order.submission_requirements)
-                                }}
-                                className="hidden"
-                              />
-                              <button
-                                onClick={() => fileInputRefs.current[order.id]?.click()}
-                                disabled={uploadingId === order.id}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 transition-all cursor-pointer"
-                              >
-                                {uploadingId === order.id ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Upload className="h-3 w-3" />
-                                )}
-                                Upload
-                              </button>
-                            </>
+                            <button
+                              disabled={uploadingId === order.id}
+                              onClick={() => {
+                                setSelectedOrderId(order.id)
+                                setSelectedOrderReqs(order.submission_requirements)
+                                setShowUploadModal(true)
+                              }}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 transition-all cursor-pointer"
+                            >
+                              {uploadingId === order.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Upload className="h-3 w-3" />
+                              )}
+                              Upload
+                            </button>
                           )}
                         </div>
                       </td>
@@ -415,6 +446,195 @@ export default function MonitorClient({ formTypes }: Props) {
           </div>
         </div>
       </div>
+
+      {/* Submit Paper Upload Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200 text-left">
+            {/* Header */}
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                </span>
+                <h2 className="text-xl font-bold text-slate-800">Submit Paper</h2>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowUploadModal(false)
+                  setSelectedFile(null)
+                  setUploadTitle('')
+                  setUploadType('File Upload')
+                  setSelectedOrderId(null)
+                  setSelectedOrderReqs(null)
+                }} 
+                className="text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <form onSubmit={async (e) => {
+              e.preventDefault()
+              if (!uploadTitle.trim()) {
+                toast.error('You must include a title for this submission.')
+                return
+              }
+              if (!selectedFile) {
+                toast.error('Please select a file to submit.')
+                return
+              }
+              if (selectedOrderId) {
+                await handleUpload(selectedOrderId, selectedFile, selectedOrderReqs, uploadTitle, uploadType)
+              }
+              setShowUploadModal(false)
+              setSelectedFile(null)
+              setUploadTitle('')
+              setUploadType('File Upload')
+              setSelectedOrderId(null)
+              setSelectedOrderReqs(null)
+            }} className="p-6 space-y-6">
+              
+              {/* Submission Type */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                  Submission Type
+                  <span className="text-blue-500 cursor-help" title="Select the category of the document you are uploading">❓</span>
+                </label>
+                <select 
+                  value={uploadType} 
+                  onChange={(e) => setUploadType(e.target.value)}
+                  className="w-full md:w-64 text-sm p-2.5 rounded-xl border border-slate-200 bg-white font-medium focus:border-purple-400 focus:ring-1 focus:ring-purple-100 outline-none text-slate-800"
+                >
+                  <option value="File Upload">File Upload</option>
+                  <option value="Supporting Document">Supporting Document</option>
+                  <option value="ID Verification">ID Verification</option>
+                  <option value="Signed Form">Signed Form</option>
+                  <option value="Proof of Address">Proof of Address</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              {/* Submission Title */}
+              <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5 mt-2.5">
+                  Submission Title
+                  <span className="text-red-500" title="Required">*</span>
+                  <span className="text-blue-500 cursor-help" title="Give a descriptive name to the uploaded paper">❓</span>
+                </label>
+                <div className="flex-1 w-full md:max-w-xs">
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="e.g. Signed TR1 Form"
+                    value={uploadTitle}
+                    onChange={(e) => setUploadTitle(e.target.value)}
+                    className="w-full text-sm p-2.5 rounded-xl border border-slate-200 font-medium focus:border-purple-400 focus:ring-1 focus:ring-purple-100 outline-none text-slate-800 bg-white" 
+                  />
+                  {!uploadTitle.trim() && (
+                    <span className="text-xs text-rose-500 mt-1 block">- You must include a title for this paper</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Author / Uploaded By */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                  Uploaded By
+                </label>
+                <input 
+                  type="text" 
+                  readOnly 
+                  value={currentName || 'Admin'} 
+                  className="w-full md:w-64 text-sm p-2.5 rounded-xl border border-slate-100 bg-slate-50 text-slate-500 font-medium cursor-not-allowed outline-none"
+                />
+              </div>
+
+              {/* File to Submit */}
+              <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5 mt-2.5">
+                  File to Submit
+                  <span className="text-blue-500 cursor-help" title="Select the file to upload">❓</span>
+                </label>
+                
+                <div className="flex-1 w-full md:max-w-xs border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50">
+                  {/* Header/Banner inside file box */}
+                  <div className="bg-slate-100/80 px-4 py-2 border-b border-slate-200 flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-slate-400" /> Files
+                    </span>
+                    <label htmlFor="modal-file-picker-mon" className="p-1 rounded bg-[#E9B127] text-white hover:bg-[#d8a11e] transition-colors cursor-pointer">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    </label>
+                    <input 
+                      id="modal-file-picker-mon" 
+                      type="file" 
+                      className="hidden" 
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) setSelectedFile(file)
+                      }}
+                    />
+                  </div>
+
+                  {/* Inner content */}
+                  <div className="p-4 flex flex-col items-center justify-center min-h-[140px] text-center">
+                    {selectedFile ? (
+                      <div className="space-y-2">
+                        <div className="w-12 h-12 rounded bg-blue-50 text-blue-500 flex items-center justify-center mx-auto">
+                          <FileText className="w-6 h-6" />
+                        </div>
+                        <p className="text-xs font-semibold text-slate-700 max-w-[200px] truncate">{selectedFile.name}</p>
+                        <button type="button" onClick={() => setSelectedFile(null)} className="text-[10px] text-red-500 hover:underline">Remove</button>
+                      </div>
+                    ) : (
+                      <label htmlFor="modal-file-picker-mon" className="cursor-pointer group flex flex-col items-center">
+                        <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center group-hover:bg-slate-200 transition-colors mb-2">
+                          <Upload className="w-5 h-5" />
+                        </div>
+                        <p className="text-xs font-semibold text-slate-500 group-hover:text-slate-700 transition-colors">Click to upload file</p>
+                        <p className="text-[10px] text-slate-400 mt-1">Accepted file types: All file types</p>
+                      </label>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer actions inside form */}
+              <div className="pt-4 border-t border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="text-[10px] text-slate-400 font-semibold flex items-center gap-1">
+                  <span className="text-red-500">*</span> Required
+                </div>
+                <div className="flex gap-2 w-full md:w-auto justify-end">
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setShowUploadModal(false)
+                      setSelectedFile(null)
+                      setUploadTitle('')
+                      setUploadType('File Upload')
+                      setSelectedOrderId(null)
+                      setSelectedOrderReqs(null)
+                    }} 
+                    className="px-4 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-500 hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={uploadingId !== null}
+                    className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-xs font-bold px-6 py-2.5 rounded-lg transition-all flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {uploadingId !== null ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    Add Submission
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

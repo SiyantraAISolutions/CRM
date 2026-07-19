@@ -4,6 +4,7 @@ import { BusinessProvider } from '@/context/BusinessContext'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import type { UserRole } from '@/types'
+import SipgateCallListener from '@/components/sipgate/SipgateCallListener'
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const cookieStore = await cookies()
@@ -18,6 +19,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <BusinessProvider>
+      <SipgateCallListener currentUserId={userId} />
       <div className="flex h-screen w-screen overflow-hidden bg-[#f8f7fc]">
         <div className="h-full flex-shrink-0">
           <Sidebar userRole={userRole} />
