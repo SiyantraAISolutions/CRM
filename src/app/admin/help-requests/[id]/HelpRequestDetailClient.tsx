@@ -159,17 +159,27 @@ export default function HelpRequestDetailClient({ request }: { request: HelpRequ
         <div className="panel">
           <div className="section-heading">Update Status</div>
           <div className="flex gap-2">
-            {['pending', 'in_progress', 'resolved'].map(s => (
-              <button
-                key={s}
-                onClick={() => updateStatus(s)}
-                className={`px-4 py-2 rounded-md text-sm font-medium border transition-colors ${
-                  status === s ? 'bg-navy text-white border-navy' : 'btn-outline'
-                }`}
-              >
-                {s.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
-              </button>
-            ))}
+            {['pending', 'in_progress', 'resolved'].map(s => {
+              const isActive = status === s
+              let activeStyle = ''
+              if (s === 'pending') activeStyle = 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600 shadow-sm'
+              else if (s === 'in_progress') activeStyle = 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700 shadow-sm'
+              else if (s === 'resolved') activeStyle = 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-sm'
+
+              return (
+                <button
+                  key={s}
+                  onClick={() => updateStatus(s)}
+                  className={`px-4 py-2 rounded-md text-sm font-bold border transition-all duration-200 cursor-pointer ${
+                    isActive 
+                      ? activeStyle 
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  {s.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                </button>
+              )
+            })}
           </div>
         </div>
 

@@ -31,8 +31,8 @@ export default function SipgateCallListener({ currentUserId }: Props) {
         const directionText = direction === 'in' ? 'Incoming Call' : 'Outgoing Call'
         const contactInfo = customerName ? `${customerName} (${from})` : from
 
-        const toastId = toast((t) => (
-          <div className="flex flex-col gap-2 p-1.5 w-full text-slate-800">
+        const toastId = toast.custom((t: any) => (
+          <div className="flex flex-col gap-2 p-1.5 w-full text-slate-800 bg-white border border-slate-200 rounded-lg shadow-lg">
             <div className="flex items-center gap-2">
               <Phone className="h-4.5 w-4.5 text-emerald-500 animate-pulse" />
               <span className="font-bold text-sm text-slate-900">{directionText}</span>

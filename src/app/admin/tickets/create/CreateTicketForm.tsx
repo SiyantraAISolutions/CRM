@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
@@ -8,17 +8,57 @@ import { toast } from 'sonner'
 const DEPARTMENTS = ['Sales', 'Admin']
 const PRIORITIES = ['low', 'medium', 'high']
 
-export default function CreateTicketForm({ brands }: { brands: { id: string; code: string; name: string }[] }) {
+export default function CreateTicketForm({ brands, resumeDraft }: { 
+  brands: { id: string; code: string; name: string }[] 
+  resumeDraft?: any
+}) {
   const router = useRouter()
   const supabase = createClient()
   const [form, setForm] = useState({
-    department: '',
-    brand_id: '',
-    priority: 'medium',
-    name: '',
-    body: ''
+    department: resumeDraft?.form_data?.department || '',
+    brand_id: resumeDraft?.form_data?.brand_id || '',
+    priority: resumeDraft?.form_data?.priority || 'medium',
+    name: resumeDraft?.form_data?.name || '',
+    body: resumeDraft?.form_data?.body || ''
   })
+  const [draftId, setDraftId] = useState<string | null>(resumeDraft?.id || null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Auto-save draft on typing
+  useEffect(() => {
+    if (!form.department && !form.brand_id && !form.name && !form.body) return
+
+    const timer = setTimeout(async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const draftPayload = {
+        user_id: user.id,
+        draft_type: 'ticket',
+        brand_id: form.brand_id || null,
+        customer_name: form.name || 'Untitled Ticket',
+        form_type_code: form.department || 'Ticket',
+        form_type_name: `${form.department || 'Support'} Ticket`,
+        form_data: form,
+        updated_at: new Date().toISOString()
+      }
+
+      if (draftId) {
+        await supabase.from('work_drafts').update(draftPayload).eq('id', draftId)
+      } else {
+        const { data } = await supabase
+          .from('work_drafts')
+          .insert(draftPayload)
+          .select('id')
+          .single()
+        if (data?.id) {
+          setDraftId(data.id)
+        }
+      }
+    }, 2000)
+
+    return () => clearTimeout(timer)
+  }, [form, draftId, supabase])
 
   function setField(k: string, v: string) { setForm(p => ({ ...p, [k]: v })) }
 

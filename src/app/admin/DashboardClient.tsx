@@ -2,9 +2,10 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Clock, ArrowRight, Sparkles, CheckSquare, Ticket, FileText, ChevronRight, Calendar } from 'lucide-react'
+import { Clock, ArrowRight, Sparkles, CheckSquare, Ticket, FileText, ChevronRight, Calendar, Trash2, Edit3 } from 'lucide-react'
 import { cn, formatDateTime, formatCurrency } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
+import { toast } from 'sonner'
 
 type ActivityStatus = 'available' | 'break' | 'lunch' | 'toilet' | 'training'
 
@@ -38,6 +39,18 @@ interface PendingDoc {
   form_type?: any
 }
 
+interface OrderDraft {
+  id: string
+  draft_type?: string
+  customer_name: string | null
+  form_type_code: string | null
+  form_type_name: string | null
+  interaction_type: string | null
+  wizard_step: number
+  updated_at: string
+  brand?: any
+}
+
 interface Props {
   stats: { totalToday: number; paidToday: number; openTickets: number; helpRequests: number }
   currentUserId: string
@@ -45,6 +58,7 @@ interface Props {
   tasks: Task[]
   helpRequests: HelpRequest[]
   pendingDocs: PendingDoc[]
+  drafts: OrderDraft[]
 }
 
 const activityButtons: { status: ActivityStatus; label: string; colorClass: string; activeClass: string }[] = [
@@ -60,12 +74,38 @@ export default function DashboardClient({
   userName,
   tasks,
   helpRequests,
-  pendingDocs
+  pendingDocs,
+  drafts: initialDrafts
 }: Props) {
   const router = useRouter()
   const supabase = createClient()
   const [activeStatus, setActiveStatus] = useState<ActivityStatus | null>(null)
   const [statusStart, setStatusStart] = useState<Date | null>(null)
+  const [drafts, setDrafts] = useState<OrderDraft[]>(initialDrafts)
+  const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null)
+
+  async function handleDeleteDraft(draftId: string) {
+    setDeletingDraftId(draftId)
+    const { error } = await supabase.from('work_drafts').delete().eq('id', draftId)
+    if (error) {
+      toast.error('Failed to delete draft')
+    } else {
+      setDrafts(prev => prev.filter(d => d.id !== draftId))
+      toast.success('Draft deleted')
+    }
+    setDeletingDraftId(null)
+  }
+
+  function timeAgo(dateStr: string) {
+    const diff = Date.now() - new Date(dateStr).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return 'Just now'
+    if (mins < 60) return `${mins}m ago`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `${hrs}h ago`
+    const days = Math.floor(hrs / 24)
+    return `${days}d ago`
+  }
 
   async function handleActivity(status: ActivityStatus) {
     if (activeStatus === status) {
@@ -166,6 +206,99 @@ export default function DashboardClient({
             </button>
           )}
         </div>
+      </div>
+
+      {/* My Drafts */}
+      <div className="bg-white rounded-2xl border border-amber-200 shadow-sm p-6 hover:shadow-md transition-all duration-300">
+        <div className="flex items-center justify-between mb-4 border-b border-amber-100 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-amber-50 text-amber-600 border border-amber-100">
+              <Edit3 className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight">My Drafts ({drafts.length})</h2>
+              <p className="text-[11px] text-slate-500 font-medium">Resume in-progress orders you previously saved</p>
+            </div>
+          </div>
+          <button
+            onClick={() => router.push('/admin/create-order')}
+            className="text-xs font-bold text-[#0B1B3A] hover:text-purple-800 flex items-center gap-1 cursor-pointer"
+          >
+            + New Order
+          </button>
+        </div>
+
+        {drafts.length === 0 ? (
+          <div className="py-8 text-center text-slate-400 text-xs font-semibold flex flex-col items-center justify-center gap-2">
+            <Edit3 className="h-8 w-8 text-slate-300 stroke-[1.5]" />
+            <p>No active drafts parked here.</p>
+            <p className="text-[10px] text-slate-400 font-normal">Active forms (orders, enquiries, tickets) will auto-save and appear here so you never lose progress.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {drafts.map(draft => {
+              const type = draft.draft_type || 'order'
+              
+              // Define style parameters based on draft type
+              let typeBadgeColor = 'bg-blue-100 text-blue-800 border-blue-200'
+              let resumePath = `/admin/create-order?draft=${draft.id}`
+              if (type === 'enquiry') {
+                typeBadgeColor = 'bg-indigo-100 text-indigo-800 border-indigo-200'
+                resumePath = `/admin/enquiries?draft=${draft.id}`
+              } else if (type === 'ticket') {
+                typeBadgeColor = 'bg-pink-100 text-pink-800 border-pink-200'
+                resumePath = `/admin/tickets/create?draft=${draft.id}`
+              }
+
+              return (
+                <div
+                  key={draft.id}
+                  className="p-4 bg-amber-50/50 border border-amber-100 rounded-xl flex items-center justify-between hover:border-amber-300 hover:bg-amber-50 transition-all group"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[9px] font-bold border px-1.5 py-0.5 rounded uppercase tracking-wide shadow-sm bg-white shrink-0 capitalize text-slate-800 border-slate-200">
+                        {type}
+                      </span>
+                      <span className="text-xs font-bold text-slate-900 truncate">
+                        {draft.customer_name || 'Untitled Draft'}
+                      </span>
+                      {draft.brand && (
+                        <span className="text-[9px] font-bold bg-white text-purple-700 border border-purple-100 px-1.5 py-0.5 rounded uppercase">
+                          {draft.brand.code}
+                        </span>
+                      )}
+                      {type === 'order' && (
+                        <span className="text-[9px] font-bold bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded">
+                          Step {(draft.wizard_step || 0) + 1}/3
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1 font-semibold">
+                      {draft.form_type_name || draft.form_type_code || 'No service selected'}
+                      <span className="text-slate-400 ml-2">· {timeAgo(draft.updated_at)}</span>
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 ml-4">
+                    <button
+                      onClick={() => router.push(resumePath)}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-[#0B1B3A] hover:bg-opacity-90 text-white transition-colors cursor-pointer shadow-sm"
+                    >
+                      Resume <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteDraft(draft.id)}
+                      disabled={deletingDraftId === draft.id}
+                      className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer border border-transparent hover:border-red-200"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Priority Tasks, Tickets & Pending Orders Grid */}

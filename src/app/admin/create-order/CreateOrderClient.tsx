@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Phone, PhoneOff, ChevronRight, CreditCard, Link2, Loader2, Check, Copy, Trash2, Upload, Eye } from 'lucide-react'
+import { Phone, PhoneOff, ChevronRight, CreditCard, Link2, Loader2, Check, Copy, Trash2, Upload, Eye, Sparkles } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn, formatCurrency } from '@/lib/utils'
 import { calculateHMLRFee, getScaleForFormType } from '@/lib/hmlr-fees'
@@ -85,7 +85,10 @@ type WizardStep = 'landing' | 'form-type' | 'wizard' | 'upsells' | 'review'
 interface Brand { id: string; code: string; name: string; domain?: string }
 interface FormType { id: string; code: string; name: string; brand_ids: string[]; base_price: number; fee_scale?: string; tc_template?: string; business_id?: string }
 
-interface Props { brands: Brand[] }
+interface Props { 
+  brands: Brand[]
+  resumeDraft?: any
+}
 
 interface UpsellSelections {
   faster_docs: boolean
@@ -99,26 +102,30 @@ const UPSELL_PRICES = {
   sms_updates: 4,
 }
 
-export default function CreateOrderClient({ brands }: Props) {
+export default function CreateOrderClient({ brands, resumeDraft }: Props) {
   const router = useRouter()
   const supabase = createClient()
 
-  const [step, setStep] = useState<WizardStep>('landing')
-  const [interactionType, setInteractionType] = useState<'inbound' | 'inbound_bing' | 'inbound_google' | 'outbound' | 'help_request' | 'enquiry' | 'appointment' | null>(null)
-  const [selectedBrand, setSelectedBrand] = useState<Brand | null>(null)
+  const [step, setStep] = useState<WizardStep>(resumeDraft ? 'wizard' : 'landing')
+  const [interactionType, setInteractionType] = useState<'inbound' | 'inbound_bing' | 'inbound_google' | 'outbound' | 'help_request' | 'enquiry' | 'appointment' | null>(resumeDraft?.interaction_type || null)
+  const [selectedBrand, setSelectedBrand] = useState<Brand | null>(
+    resumeDraft ? (brands.find(b => b.id === resumeDraft.brand_id) || null) : null
+  )
   const [formTypes, setFormTypes] = useState<FormType[]>([])
   const [selectedFormType, setSelectedFormType] = useState<FormType | null>(null)
-  const [wizardStep, setWizardStep] = useState(0)
-  const [upsells, setUpsells] = useState<UpsellSelections>({ faster_docs: false, printed_copy: false, sms_updates: false })
+  const [wizardStep, setWizardStep] = useState(resumeDraft?.wizard_step || 0)
+  const [upsells, setUpsells] = useState<UpsellSelections>(
+    resumeDraft?.upsells || { faster_docs: false, printed_copy: false, sms_updates: false }
+  )
   const [submitting, setSubmitting] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
   // Form data
-  const [formData, setFormData] = useState<Record<string, string>>({})
-  const [propertyValue, setPropertyValue] = useState('')
+  const [formData, setFormData] = useState<Record<string, string>>(resumeDraft?.form_data || {})
+  const [propertyValue, setPropertyValue] = useState(resumeDraft?.property_value || '')
   const [hmlrFee, setHmlrFee] = useState(0)
   const [termsAccepted, setTermsAccepted] = useState(false)
-  const [creationNotes, setCreationNotes] = useState('')
+  const [creationNotes, setCreationNotes] = useState(resumeDraft?.notes || '')
 
   // Payment mode
   const [paymentMode, setPaymentMode] = useState<'link' | 'card' | null>(null)
@@ -126,7 +133,7 @@ export default function CreateOrderClient({ brands }: Props) {
   const [copiedLink, setCopiedLink] = useState(false)
   const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null)
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null)
-  const [orderItems, setOrderItems] = useState<{ id: string; item_type: string; amount: number }[]>([])
+  const [orderItems, setOrderItems] = useState<{ id: string; item_type: string; amount: number }[]>(resumeDraft?.order_items || [])
 
   useEffect(() => {
     if (!selectedBrand) return
@@ -148,10 +155,6 @@ export default function CreateOrderClient({ brands }: Props) {
           { code: 'DEED_SEARCH', name: 'Deed Search', isStatic: true, fallbackCode: 'MAP_SEARCH' },
           { code: 'APPLICATION_ENQUIRY', name: 'Application Enquiry', isStatic: true, fallbackCode: 'TITLE_REGISTER' },
           { code: 'PROPERTY_ALERT', name: 'Property Alert', isStatic: true, fallbackCode: 'PROPERTY_OWNERSHIP' },
-          { code: 'APPLICATION_PACK', name: 'Application Pack', isStatic: true, fallbackCode: 'PROPERTY_OWNERSHIP' },
-          { code: 'DIY_FORMS', name: 'DIY Forms', isStatic: true, fallbackCode: 'TITLE_REGISTER' },
-          { code: 'CONVEYANCING_PACK', name: 'Conveyancing Pack', isStatic: true, fallbackCode: 'PROPERTY_OWNERSHIP' },
-          { code: 'CONVEYANCING_PACK_ONLINE', name: 'Conveyancing Pack Online', isStatic: true, fallbackCode: 'PROPERTY_OWNERSHIP' },
           { code: 'AP1', name: 'AP1 Name Change' },
           { code: 'DJP', name: 'DJP Death of Joint Proprietor' },
           { code: 'TR1', name: 'TR1 Add/Remove Proprietor' },
@@ -192,6 +195,123 @@ export default function CreateOrderClient({ brands }: Props) {
       setHmlrFee(calculateHMLRFee(Number(propertyValue), scale))
     }
   }, [selectedFormType, propertyValue])
+
+  // Draft States
+  const [draftId, setDraftId] = useState<string | null>(resumeDraft?.id || null)
+  const [savingDraft, setSavingDraft] = useState(false)
+
+  // Auto-select Form Type when resuming a draft
+  useEffect(() => {
+    if (resumeDraft && formTypes.length > 0 && !selectedFormType) {
+      const found = formTypes.find(ft => ft.code === resumeDraft.form_type_code)
+      if (found) {
+        setSelectedFormType(found)
+      }
+    }
+  }, [resumeDraft, formTypes, selectedFormType])
+
+  // Manual save draft handler
+  const handleSaveDraft = async () => {
+    setSavingDraft(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast.error('You must be logged in to save drafts')
+        return
+      }
+
+      const customerName = `${formData.first_name || ''} ${formData.last_name || ''}`.trim() || 'Untitled'
+
+      const draftPayload = {
+        user_id: user.id,
+        draft_type: 'order',
+        brand_id: selectedBrand?.id || null,
+        form_type_code: selectedFormType?.code || null,
+        form_type_name: selectedFormType?.name || null,
+        interaction_type: interactionType,
+        form_data: formData,
+        wizard_step: wizardStep,
+        upsells,
+        order_items: orderItems,
+        property_value: propertyValue,
+        notes: creationNotes,
+        customer_name: customerName,
+      }
+
+      let resError
+      if (draftId) {
+        const { error } = await supabase
+          .from('work_drafts')
+          .update({ ...draftPayload, updated_at: new Date().toISOString() })
+          .eq('id', draftId)
+        resError = error
+      } else {
+        const { data, error } = await supabase
+          .from('work_drafts')
+          .insert(draftPayload)
+          .select('id')
+          .single()
+        resError = error
+        if (data?.id) {
+          setDraftId(data.id)
+        }
+      }
+
+      if (resError) {
+        console.error(resError)
+        toast.error('Failed to save draft')
+      } else {
+        toast.success('Draft saved successfully!')
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('An error occurred while saving draft')
+    } finally {
+      setSavingDraft(false)
+    }
+  }
+
+  // Auto-save every 30 seconds
+  useEffect(() => {
+    if (step !== 'wizard' || !selectedFormType) return
+
+    const interval = setInterval(() => {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (!user) return
+        const customerName = `${formData.first_name || ''} ${formData.last_name || ''}`.trim() || 'Untitled'
+        const draftPayload = {
+          user_id: user.id,
+          draft_type: 'order',
+          brand_id: selectedBrand?.id || null,
+          form_type_code: selectedFormType?.code || null,
+          form_type_name: selectedFormType?.name || null,
+          interaction_type: interactionType,
+          form_data: formData,
+          wizard_step: wizardStep,
+          upsells,
+          order_items: orderItems,
+          property_value: propertyValue,
+          notes: creationNotes,
+          customer_name: customerName,
+          updated_at: new Date().toISOString()
+        }
+
+        if (draftId) {
+          supabase.from('work_drafts').update(draftPayload).eq('id', draftId)
+            .then(({ error }) => {
+              if (!error) console.log('Draft auto-saved')
+            })
+        } else {
+          supabase.from('work_drafts').insert(draftPayload).select('id').single()
+            .then(({ data, error }) => {
+              if (data?.id) setDraftId(data.id)
+            })
+        }
+      })
+    }, 30000)
+
+    return () => clearInterval(interval)
+  }, [step, selectedBrand, selectedFormType, interactionType, formData, wizardStep, upsells, orderItems, propertyValue, creationNotes, draftId, supabase])
 
   const SERVICE_RETAIL_VALS: Record<string, number> = {
     TITLE_REGISTER: 36.00,
@@ -353,6 +473,11 @@ export default function CreateOrderClient({ brands }: Props) {
         message: creationNotes,
         category: 'Creation Note',
       })
+    }
+
+    // Delete order draft if it exists
+    if (draftId) {
+      await supabase.from('work_drafts').delete().eq('id', draftId)
     }
 
     return newOrder
@@ -536,7 +661,18 @@ export default function CreateOrderClient({ brands }: Props) {
           
           {/* Top Bar */}
           <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
-            <h2 className="text-xl font-bold text-[#0B1B3A]">Step {wizardStep + 1} of 3</h2>
+            <div className="flex items-center gap-4">
+              <h2 className="text-xl font-bold text-[#0B1B3A]">Step {wizardStep + 1} of 3</h2>
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={savingDraft}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors border border-slate-200 cursor-pointer"
+              >
+                {savingDraft ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                {savingDraft ? 'Saving Draft...' : 'Save Draft'}
+              </button>
+            </div>
             <div className="text-right">
               <div className="text-2xl font-bold text-[#0B1B3A]">{formatCurrency(grandTotal)}</div>
               <div className="text-xs text-slate-500 font-medium">Running Total</div>
@@ -931,7 +1067,7 @@ export default function CreateOrderClient({ brands }: Props) {
               if (wizardStep === 0) {
                 setStep('landing')
               } else {
-                setWizardStep(s => s - 1)
+                setWizardStep((s: number) => s - 1)
               }
             }}
             className="border border-slate-300 bg-white hover:bg-slate-50 transition-colors text-[#2c3e50] font-medium px-8 py-2.5 rounded shadow-sm">
@@ -939,7 +1075,7 @@ export default function CreateOrderClient({ brands }: Props) {
             </button>
             <button onClick={() => {
               if (wizardStep < 1) {
-                setWizardStep(s => s + 1)
+                setWizardStep((s: number) => s + 1)
               } else {
                 const defaultItems = [
                   { id: 'base-doc-fee', item_type: selectedFormType?.name ?? 'Document Fee', amount: basePrice },
@@ -977,7 +1113,18 @@ export default function CreateOrderClient({ brands }: Props) {
           
           {/* Top Bar */}
           <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
-            <h2 className="text-xl font-bold text-[#0B1B3A]">Step 3 of 3: Review & Payment</h2>
+            <div className="flex items-center gap-4">
+              <h2 className="text-xl font-bold text-[#0B1B3A]">Step 3 of 3: Review & Payment</h2>
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={savingDraft}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors border border-slate-200 cursor-pointer"
+              >
+                {savingDraft ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                {savingDraft ? 'Saving Draft...' : 'Save Draft'}
+              </button>
+            </div>
             <div className="text-right">
               <div className="text-2xl font-bold text-[#0B1B3A]">{formatCurrency(grandTotal)}</div>
               <div className="text-xs text-slate-500 font-medium">Running Total</div>

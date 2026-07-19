@@ -63,6 +63,12 @@ export default async function DashboardPage({ searchParams }: Props) {
     .order('due_at', { ascending: true })
     .limit(5)
 
+  let recentDraftsQuery = supabase.from('work_drafts')
+    .select('*, brand:brands(code,name)')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false })
+    .limit(10)
+
   if (activeBusinessId !== 'all') {
     activeCasesQuery = activeCasesQuery.eq('business_id', activeBusinessId)
     docsPendingQuery = docsPendingQuery.eq('business_id', activeBusinessId)
@@ -82,6 +88,7 @@ export default async function DashboardPage({ searchParams }: Props) {
     { data: recentPendingDocs },
     { data: tasksList },
     { data: formTypes },
+    { data: draftsList },
   ] = await Promise.all([
     activeCasesQuery,
     docsPendingQuery,
@@ -90,7 +97,8 @@ export default async function DashboardPage({ searchParams }: Props) {
     recentHelpRequestsQuery,
     recentPendingDocsQuery,
     tasksListQuery,
-    supabase.from('form_types').select('id, code, name, base_price, fee_scale')
+    supabase.from('form_types').select('id, code, name, base_price, fee_scale'),
+    recentDraftsQuery
   ])
 
   const userName = cookieStore.get('user-fullname')?.value ?? 'Admin'
@@ -111,6 +119,7 @@ export default async function DashboardPage({ searchParams }: Props) {
         tasks={tasksList ?? []}
         helpRequests={recentHelpRequests ?? []}
         pendingDocs={recentPendingDocs ?? []}
+        drafts={draftsList ?? []}
       />
     </div>
   )

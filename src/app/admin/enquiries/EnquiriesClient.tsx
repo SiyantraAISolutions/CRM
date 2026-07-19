@@ -9,6 +9,7 @@ import Badge from '@/components/ui/Badge'
 import Avatar from '@/components/ui/Avatar'
 import { Plus, Search } from 'lucide-react'
 import { useBusiness } from '@/context/BusinessContext'
+import { toast } from 'sonner'
 
 type Stage = 'new' | 'contacted' | 'quoted' | 'won' | 'lost'
 
@@ -54,6 +55,28 @@ export default function EnquiriesClient({ businesses, users }: { businesses: Bus
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [siteFilter, setSiteFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState('all')
+  
+  const [resumeDraftId, setResumeDraftId] = useState<string | null>(null)
+  const [resumeForm, setResumeForm] = useState<any>(null)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const draftId = params.get('draft')
+    if (draftId) {
+      supabase
+        .from('work_drafts')
+        .select('*')
+        .eq('id', draftId)
+        .single()
+        .then(({ data }) => {
+          if (data) {
+            setResumeDraftId(data.id)
+            setResumeForm(data.form_data)
+            setShowCreateModal(true)
+          }
+        })
+    }
+  }, [supabase])
 
   const fetchEnquiries = useCallback(async () => {
     setLoading(true)
@@ -285,29 +308,80 @@ export default function EnquiriesClient({ businesses, users }: { businesses: Bus
         <CreateEnquiryModal
           businesses={businesses}
           users={users}
-          onClose={() => setShowCreateModal(false)}
-          onCreated={() => { setShowCreateModal(false); fetchEnquiries() }}
+          initialForm={resumeForm}
+          resumeDraftId={resumeDraftId}
+          onClose={() => {
+            setShowCreateModal(false)
+            setResumeDraftId(null)
+            setResumeForm(null)
+          }}
+          onCreated={() => {
+            setShowCreateModal(false)
+            setResumeDraftId(null)
+            setResumeForm(null)
+            fetchEnquiries()
+          }}
         />
       )}
     </div>
   )
 }
 
-function CreateEnquiryModal({ businesses, users, onClose, onCreated }: {
+function CreateEnquiryModal({ businesses, users, onClose, onCreated, initialForm, resumeDraftId }: {
   businesses: Business[]; users: User[]
   onClose: () => void; onCreated: () => void
+  initialForm?: any; resumeDraftId?: string | null
 }) {
   const supabase = createClient()
   const { activeBusinessId } = useBusiness()
   const [form, setForm] = useState({
-    customer_name: '',
-    email: '',
-    phone: '',
-    business_id: activeBusinessId !== 'all' ? activeBusinessId : '',
-    assigned_to: '',
-    message: ''
+    customer_name: initialForm?.customer_name || '',
+    email: initialForm?.email || '',
+    phone: initialForm?.phone || '',
+    business_id: initialForm?.business_id || (activeBusinessId !== 'all' ? activeBusinessId : ''),
+    assigned_to: initialForm?.assigned_to || '',
+    message: initialForm?.message || ''
   })
+  const [draftId, setDraftId] = useState<string | null>(resumeDraftId || null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Auto-save draft on typing
+  useEffect(() => {
+    if (!form.customer_name && !form.email && !form.phone && !form.business_id && !form.message) return
+
+    const timer = setTimeout(async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const biz = businesses.find(b => b.id === form.business_id)
+
+      const draftPayload = {
+        user_id: user.id,
+        draft_type: 'enquiry',
+        brand_id: form.business_id || null,
+        customer_name: form.customer_name || 'Untitled Enquiry',
+        form_type_code: 'Enquiry',
+        form_type_name: biz ? `${biz.name} Call Enquiry` : 'Call Enquiry',
+        form_data: form,
+        updated_at: new Date().toISOString()
+      }
+
+      if (draftId) {
+        await supabase.from('work_drafts').update(draftPayload).eq('id', draftId)
+      } else {
+        const { data } = await supabase
+          .from('work_drafts')
+          .insert(draftPayload)
+          .select('id')
+          .single()
+        if (data?.id) {
+          setDraftId(data.id)
+        }
+      }
+    }, 2000)
+
+    return () => clearTimeout(timer)
+  }, [form, draftId, supabase, businesses])
 
   function setF(k: string, v: string) { setForm(p => ({ ...p, [k]: v })) }
 
@@ -315,11 +389,23 @@ function CreateEnquiryModal({ businesses, users, onClose, onCreated }: {
     e.preventDefault()
     setSubmitting(true)
     const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('enquiries').insert({
+    const { error } = await supabase.from('enquiries').insert({
       ...form,
       assigned_to: form.assigned_to || user?.id,
       pipeline_stage: 'new',
     })
+
+    if (error) {
+      toast.error('Failed to create enquiry')
+      setSubmitting(false)
+      return
+    }
+
+    if (draftId) {
+      await supabase.from('work_drafts').delete().eq('id', draftId)
+    }
+
+    toast.success('Enquiry created')
     setSubmitting(false)
     onCreated()
   }
