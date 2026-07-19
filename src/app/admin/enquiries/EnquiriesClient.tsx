@@ -383,6 +383,51 @@ function CreateEnquiryModal({ businesses, users, onClose, onCreated, initialForm
     return () => clearTimeout(timer)
   }, [form, draftId, supabase, businesses])
 
+  // Prevent accidental navigation when form has details entered
+  useEffect(() => {
+    const isDirty = !submitting && !!(form.customer_name || form.email || form.phone || form.business_id || form.message)
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault()
+        e.returnValue = ''
+        return ''
+      }
+    }
+
+    const handleClientNavigation = (e: MouseEvent) => {
+      if (!isDirty) return
+
+      let target = e.target as HTMLElement | null
+      while (target && target.tagName !== 'A') {
+        target = target.parentElement
+      }
+
+      if (target && target.tagName === 'A') {
+        const href = target.getAttribute('href')
+        if (href && href.startsWith('/') && !href.startsWith('#')) {
+          e.preventDefault()
+          e.stopPropagation()
+          
+          const confirmTab = window.confirm(
+            'You have an active enquiry form in progress. Would you like to open the new page in a new tab so you do not lose your place?'
+          )
+          if (confirmTab) {
+            window.open(href, '_blank')
+          }
+        }
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    document.addEventListener('click', handleClientNavigation, true)
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      document.removeEventListener('click', handleClientNavigation, true)
+    }
+  }, [form, submitting])
+
   function setF(k: string, v: string) { setForm(p => ({ ...p, [k]: v })) }
 
   async function submit(e: React.FormEvent) {

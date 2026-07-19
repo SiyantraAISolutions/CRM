@@ -60,6 +60,51 @@ export default function CreateTicketForm({ brands, resumeDraft }: {
     return () => clearTimeout(timer)
   }, [form, draftId, supabase])
 
+  // Prevent accidental navigation when form has details entered
+  useEffect(() => {
+    const isDirty = !submitting && !!(form.department || form.brand_id || form.name || form.body)
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault()
+        e.returnValue = ''
+        return ''
+      }
+    }
+
+    const handleClientNavigation = (e: MouseEvent) => {
+      if (!isDirty) return
+
+      let target = e.target as HTMLElement | null
+      while (target && target.tagName !== 'A') {
+        target = target.parentElement
+      }
+
+      if (target && target.tagName === 'A') {
+        const href = target.getAttribute('href')
+        if (href && href.startsWith('/') && !href.startsWith('#')) {
+          e.preventDefault()
+          e.stopPropagation()
+          
+          const confirmTab = window.confirm(
+            'You have an active ticket in progress. Would you like to open the new page in a new tab so you do not lose your place?'
+          )
+          if (confirmTab) {
+            window.open(href, '_blank')
+          }
+        }
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    document.addEventListener('click', handleClientNavigation, true)
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      document.removeEventListener('click', handleClientNavigation, true)
+    }
+  }, [form, submitting])
+
   function setField(k: string, v: string) { setForm(p => ({ ...p, [k]: v })) }
 
   async function handleSubmit(e: React.FormEvent) {

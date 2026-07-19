@@ -271,11 +271,11 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
     }
   }
 
-  // Auto-save every 30 seconds
+  // Auto-save on form change (debounced 2 seconds)
   useEffect(() => {
     if (step !== 'wizard' || !selectedFormType) return
 
-    const interval = setInterval(() => {
+    const timer = setTimeout(() => {
       supabase.auth.getUser().then(({ data: { user } }) => {
         if (!user) return
         const customerName = `${formData.first_name || ''} ${formData.last_name || ''}`.trim() || 'Untitled'
@@ -308,10 +308,55 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
             })
         }
       })
-    }, 30000)
+    }, 2000)
 
-    return () => clearInterval(interval)
+    return () => clearTimeout(timer)
   }, [step, selectedBrand, selectedFormType, interactionType, formData, wizardStep, upsells, orderItems, propertyValue, creationNotes, draftId, supabase])
+
+  // Prevent accidental navigation when form is dirty (wizard step is active)
+  useEffect(() => {
+    const isDirty = step === 'wizard'
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault()
+        e.returnValue = ''
+        return ''
+      }
+    }
+
+    const handleClientNavigation = (e: MouseEvent) => {
+      if (!isDirty) return
+
+      let target = e.target as HTMLElement | null
+      while (target && target.tagName !== 'A') {
+        target = target.parentElement
+      }
+
+      if (target && target.tagName === 'A') {
+        const href = target.getAttribute('href')
+        if (href && href.startsWith('/') && !href.startsWith('#')) {
+          e.preventDefault()
+          e.stopPropagation()
+          
+          const confirmTab = window.confirm(
+            'You have an active order in progress. Would you like to open the new page in a new tab so you do not lose your place?'
+          )
+          if (confirmTab) {
+            window.open(href, '_blank')
+          }
+        }
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    document.addEventListener('click', handleClientNavigation, true)
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      document.removeEventListener('click', handleClientNavigation, true)
+    }
+  }, [step])
 
   const SERVICE_RETAIL_VALS: Record<string, number> = {
     TITLE_REGISTER: 36.00,
