@@ -155,7 +155,15 @@ export default function OrdersClient({ brands, formTypes }: Props) {
       key: 'status',
       label: 'Status',
       sortable: true,
-      render: (v) => statusBadge(String(v)),
+      render: (v, row) => {
+        const isDeferred = typeof row.deferred_until === 'string' && new Date(row.deferred_until).getTime() > new Date().getTime()
+        return (
+          <div className="flex flex-wrap gap-1.5 items-center">
+            {statusBadge(String(v))}
+            {isDeferred && <Badge label="Deferred" variant="blue" />}
+          </div>
+        )
+      },
     },
   ]
 

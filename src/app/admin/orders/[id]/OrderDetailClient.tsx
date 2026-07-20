@@ -1076,6 +1076,28 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
 
   return (
     <div className="flex flex-col h-full overflow-auto bg-white font-sans">
+      {order.deferred_until && new Date(order.deferred_until).getTime() > new Date().getTime() && (
+        <div className="mx-10 mt-6 p-4 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-between shadow-sm animate-in fade-in slide-in-from-top-4 duration-200">
+          <div className="flex items-start gap-3">
+            <Calendar className="h-5 w-5 text-indigo-600 mt-0.5" />
+            <div>
+              <h4 className="text-sm font-bold text-indigo-900">Application Currently Deferred</h4>
+              <p className="text-xs text-indigo-700/90 font-medium mt-0.5">
+                Deferred until <strong className="text-indigo-950">{formatDateTime(order.deferred_until)}</strong>. 
+                {order.deferred_reason && <span> Reason: <span className="italic">"{order.deferred_reason}"</span></span>}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleResume}
+            disabled={saving}
+            className="bg-white hover:bg-indigo-100/50 text-indigo-700 text-xs font-bold px-4 py-2 rounded-lg border border-indigo-200 shadow-sm transition-all cursor-pointer"
+          >
+            {saving ? 'Resuming...' : 'Resume Processing'}
+          </button>
+        </div>
+      )}
+
       {/* Order heading */}
       <div className="px-10 pt-10 pb-4">
         <h1 className="text-[24px] font-bold text-[#0B1B3A] tracking-tight mb-2">{headingText}</h1>
@@ -1697,6 +1719,46 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
               </div>
             </div>
 
+            {/* Deferral Control */}
+            {order.deferred_until && new Date(order.deferred_until).getTime() > new Date().getTime() ? (
+              <div className="mb-10 p-5 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-between">
+                <div className="flex items-start gap-3">
+                  <Calendar className="h-5 w-5 text-indigo-600 mt-0.5" />
+                  <div>
+                    <h4 className="text-sm font-bold text-indigo-900">Application Currently Deferred</h4>
+                    <p className="text-xs text-indigo-700/90 mt-1">
+                      Deferred until <strong>{formatDateTime(order.deferred_until)}</strong>. 
+                      {order.deferred_reason && <span> Reason: <span className="italic">"{order.deferred_reason}"</span></span>}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleResume}
+                  disabled={saving}
+                  className="bg-white hover:bg-indigo-100/50 text-indigo-700 text-xs font-bold px-4 py-2 rounded-lg border border-indigo-200 shadow-sm transition-all cursor-pointer"
+                >
+                  Resume Processing
+                </button>
+              </div>
+            ) : (
+              <div className="mb-10">
+                <label className="block text-[14px] font-bold text-slate-700 mb-3">Defer Application</label>
+                <button
+                  disabled={saving}
+                  onClick={() => {
+                    const defaultDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                    setDeferDate(defaultDate)
+                    setDeferReason('Awaiting documents')
+                    setShowDeferModal(true)
+                  }}
+                  className="px-6 py-3 rounded-lg text-sm font-semibold tracking-wide border bg-white border-indigo-300 text-indigo-700 hover:bg-indigo-50 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <Calendar className="h-4 w-4" />
+                  Defer Application...
+                </button>
+              </div>
+            )}
+
             {/* Related Email Template Section */}
             <div className="border-t border-slate-200 pt-8">
               <h3 className="text-[16px] font-bold text-[#0B1B3A] mb-4">Related Email Template Preview</h3>
@@ -2108,6 +2170,81 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
               >
                 Print Receipt
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deferral Modal */}
+      {showDeferModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200 text-left">
+            {/* Header */}
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-indigo-600" />
+                <h2 className="text-xl font-bold text-slate-800">Defer Application</h2>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowDeferModal(false)
+                  setDeferDate('')
+                  setDeferReason('')
+                }} 
+                className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-6">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Review Date</label>
+                <input
+                  type="date"
+                  required
+                  value={deferDate}
+                  onChange={e => setDeferDate(e.target.value)}
+                  className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-indigo-500 focus:outline-none text-[15px] text-slate-800 shadow-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Reason for Deferral</label>
+                <input
+                  type="text"
+                  required
+                  value={deferReason}
+                  onChange={e => setDeferReason(e.target.value)}
+                  placeholder="e.g. Awaiting documents"
+                  className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-indigo-500 focus:outline-none text-[15px] text-slate-800 shadow-sm"
+                />
+              </div>
+
+              {/* Footer */}
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeferModal(false)
+                    setDeferDate('')
+                    setDeferReason('')
+                  }}
+                  className="px-5 py-2.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 border border-slate-200 transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDefer}
+                  disabled={saving}
+                  className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Defer
+                </button>
+              </div>
             </div>
           </div>
         </div>

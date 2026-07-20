@@ -7,7 +7,7 @@ import { Order, OrderStatus } from '@/types'
 import { formatCurrency, cn } from '@/lib/utils'
 import { 
   Clock, AlertCircle, ArrowRight, CheckCircle2, 
-  Mail, Truck, Search, Zap, ExternalLink 
+  Mail, Truck, Search, Zap, ExternalLink, Calendar, X, Loader2
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -23,6 +23,12 @@ export default function ProcessClient({ formTypes }: Props) {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+
+  // Deferral Modal State
+  const [deferOrderId, setDeferOrderId] = useState<string | null>(null)
+  const [deferDate, setDeferDate] = useState('')
+  const [deferReason, setDeferReason] = useState('Awaiting documents')
+  const [savingDefer, setSavingDefer] = useState(false)
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
@@ -54,31 +60,39 @@ export default function ProcessClient({ formTypes }: Props) {
     return () => { supabase.removeChannel(channel) }
   }, [fetchOrders, supabase])
 
+  const handleDeferSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!deferOrderId) return
+    if (!deferDate) {
+      toast.error('Please select a review date')
+      return
+    }
+
+    setSavingDefer(true)
+    const formattedDate = new Date(deferDate).toISOString()
+    const { error } = await supabase.from('orders').update({
+      deferred_until: formattedDate,
+      deferred_reason: deferReason || 'Deferred via workload board'
+    }).eq('id', deferOrderId)
+
+    setSavingDefer(false)
+    if (error) {
+      toast.error('Failed to defer order')
+    } else {
+      toast.success('Order deferred successfully')
+      setDeferOrderId(null)
+      fetchOrders()
+    }
+  }
+
   const updateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
     const { data: { user } } = await supabase.auth.getUser()
 
     if (newStatus === 'deferred' as any) {
-      const daysStr = window.prompt("Enter number of days to defer this application:", "3")
-      if (daysStr === null) return // user cancelled
-      const days = parseInt(daysStr, 10)
-      if (isNaN(days) || days <= 0) {
-        toast.error("Invalid number of days")
-        return
-      }
-      const reason = window.prompt("Enter reason for deferral:", "Awaiting documents") || "Deferred via workload board"
-      
-      const deferDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
-      const { error } = await supabase.from('orders').update({
-        deferred_until: deferDate,
-        deferred_reason: reason
-      }).eq('id', orderId)
-      
-      if (error) {
-        toast.error('Failed to defer order')
-      } else {
-        toast.success(`Order deferred for ${days} days`)
-        fetchOrders()
-      }
+      setDeferOrderId(orderId)
+      const defaultDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      setDeferDate(defaultDate)
+      setDeferReason('Awaiting documents')
       return
     }
 
@@ -228,6 +242,20 @@ export default function ProcessClient({ formTypes }: Props) {
                         {new Date(order.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute:'2-digit' })}
                       </div>
 
+                      {isDeferred(order) && (
+                        <div className="mt-2 mb-4 p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-100 text-xs space-y-1">
+                          <div className="flex items-center gap-1 text-indigo-700 font-semibold">
+                            <Calendar className="h-3 w-3 text-indigo-500" />
+                            <span>Deferred until: {new Date(order.deferred_until as string).toLocaleDateString('en-GB')}</span>
+                          </div>
+                          {order.deferred_reason && (
+                            <p className="text-indigo-600/90 font-medium italic">
+                              "{order.deferred_reason}"
+                            </p>
+                          )}
+                        </div>
+                      )}
+
                       {/* Completed / Shipping Section */}
                       {col.id === 'completed' && (
                         <div className="mt-4 pt-4 border-t border-slate-100">
@@ -327,6 +355,72 @@ export default function ProcessClient({ formTypes }: Props) {
           ))}
         </div>
       </div>
+
+      {/* Deferral Modal */}
+      {deferOrderId && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200 text-left">
+            {/* Header */}
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-indigo-600" />
+                <h2 className="text-xl font-bold text-slate-800">Defer Application</h2>
+              </div>
+              <button 
+                onClick={() => setDeferOrderId(null)} 
+                className="text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <form onSubmit={handleDeferSubmit} className="p-6 space-y-6">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Review Date</label>
+                <input
+                  type="date"
+                  required
+                  value={deferDate}
+                  onChange={e => setDeferDate(e.target.value)}
+                  className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-indigo-500 focus:outline-none text-[15px] text-slate-800 shadow-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Reason for Deferral</label>
+                <input
+                  type="text"
+                  required
+                  value={deferReason}
+                  onChange={e => setDeferReason(e.target.value)}
+                  placeholder="e.g. Awaiting documents"
+                  className="w-full h-11 px-3 bg-white border border-slate-300 rounded-md focus:border-indigo-500 focus:outline-none text-[15px] text-slate-800 shadow-sm"
+                />
+              </div>
+
+              {/* Footer */}
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setDeferOrderId(null)}
+                  className="px-5 py-2.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 border border-slate-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingDefer}
+                  className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all flex items-center gap-2"
+                >
+                  {savingDefer && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Defer
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

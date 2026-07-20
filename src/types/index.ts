@@ -105,6 +105,8 @@ export interface Order {
   document_url?: string
   tracking_number?: string
   postage_provider?: string
+  deferred_until?: string | null
+  deferred_reason?: string | null
   created_at: string
   updated_at: string
   items?: OrderItem[]
