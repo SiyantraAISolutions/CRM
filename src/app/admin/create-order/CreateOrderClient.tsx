@@ -46,12 +46,12 @@ const ITEM_TYPES = [
 ]
 
 const DEFAULT_PRICES: Record<string, number> = {
-  'Title Register': 36.00,
-  'Title Plan': 36.00,
-  'Deed Search': 45.00,
+  'Title Register': 30.00,
+  'Title Plan': 30.00,
+  'Deed Search': 30.00,
   'Map / Land Search': 41.00,
-  'Property Ownership (Register + Plan)': 60.00,
-  'Property Alert Service': 45.00,
+  'Property Ownership (Register + Plan)': 50.00,
+  'Property Alert Service': 25.00,
   'Transfer of Equity': 450.00,
   'Name Change on Deeds': 150.00,
   'Death of a Joint Proprietor': 400.00,
@@ -59,11 +59,11 @@ const DEFAULT_PRICES: Record<string, number> = {
   'Tenants in Common': 350.00,
   'First Registration': 600.00,
   'Fast Track Fee': 10.00,
-  'Printed Copy Fee': 7.50,
-  'SMS Updates Fee': 4.00,
-  'Deed Search [Application]': 45.00,
-  'Deed Search [Extra]': 45.00,
-  'Property Alert': 45.00,
+  'Printed Copy Fee': 9.00,
+  'SMS Updates Fee': 2.50,
+  'Deed Search [Application]': 30.00,
+  'Deed Search [Extra]': 30.00,
+  'Property Alert': 25.00,
   'ADV1 Adverse Possession': 450.00,
   'AP1 Name Change': 150.00,
   'AS1 Assent of Whole': 450.00,
@@ -72,7 +72,7 @@ const DEFAULT_PRICES: Record<string, number> = {
   'DJP Death of Joint Proprietor': 400.00,
   'FR1 First Registration': 600.00,
   'Map Search / Deed Search': 41.00,
-  'Property Ownership': 60.00,
+  'Property Ownership': 50.00,
   'RX3 Remove Restriction': 350.00,
   'SEV Joint Tenants to Tenants in Common': 350.00,
   'TP1 Transfer of Part': 450.00,
@@ -98,8 +98,8 @@ interface UpsellSelections {
 
 const UPSELL_PRICES = {
   faster_docs: 10,
-  printed_copy: 7.5,
-  sms_updates: 4,
+  printed_copy: 9.00,
+  sms_updates: 2.50,
 }
 
 export default function CreateOrderClient({ brands, resumeDraft }: Props) {
@@ -359,31 +359,68 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
   }, [step])
 
   const SERVICE_RETAIL_VALS: Record<string, number> = {
-    TITLE_REGISTER: 36.00,
-    TITLE_PLAN: 36.00,
+    TITLE_REGISTER: 30.00,
+    TITLE_PLAN: 30.00,
     MAP_SEARCH: 41.00,
-    PROPERTY_OWNERSHIP: 60.00,
-    FR1: 600.00, // First Registration
-    AP1: 150.00, // Name Change
-    DJP: 400.00, // Death of Joint Proprietor
-    TR1: 450.00, // Transfer of Equity
-    TP1: 450.00, // Transfer of Part / Equity
-    COG1: 150.00, // Name/Address change
-    SEV: 350.00, // Severance / restriction
-    RX3: 350.00, // Removal of a Restriction
-    ADV1: 450.00, // Adverse Possession
-    AS1: 450.00, // Assent of Whole / Wills & Probate
-    DEED_SEARCH: 45.00,
-    PROPERTY_ALERT: 45.00,
+    PROPERTY_OWNERSHIP: 50.00,
+    FR1: 600.00, // First Registration — inc. VAT
+    AP1: 150.00, // Name Change — inc. VAT
+    DJP: 400.00, // Death of Joint Proprietor — inc. VAT
+    TR1: 450.00, // Transfer of Equity — inc. VAT
+    TP1: 450.00, // Transfer of Part / Equity — inc. VAT
+    COG1: 150.00, // Name/Address change — inc. VAT
+    SEV: 350.00, // Severance / restriction — inc. VAT
+    RX3: 350.00, // Removal of a Restriction — inc. VAT
+    ADV1: 450.00, // Adverse Possession — inc. VAT
+    AS1: 450.00, // Assent of Whole / Wills & Probate — inc. VAT
+    DEED_SEARCH: 30.00,
+    PROPERTY_ALERT: 25.00,
   }
 
-  const basePrice = selectedFormType ? (SERVICE_RETAIL_VALS[selectedFormType.code] ?? selectedFormType.base_price) : 0
+  // Descriptions & bullet points shown on the service selector
+  const SERVICE_DESCRIPTIONS: Record<string, string[]> = {
+    TR1: ['Removing or adding a proprietor', 'No mortgage involved'],
+    DJP: ['Removing joint proprietor after bereavement'],
+    AP1: ['Changing name after marriage', 'Divorce decree', 'Deed poll', 'Changing name of property with council approval'],
+    RX3: ['Removing charges', 'Removing tenancy agreement — tenants in common to joint tenancy', 'Removing covenants with letter of approval', 'Removal of restrictions using court order', 'Removal of deed of release', 'Removal of mortgage — proof of mortgage'],
+    AS1: ['Removal of deceased using probate (Wills/Probate)'],
+    SEV: ['Applying for restriction/covenants', 'Applying court orders', 'Applying tenancy agreement'],
+    FR1: ['Registering property electronically for first time', 'Only applicable if original deeds apply'],
+    COG1: ['Changing registered owner\'s correspondence address'],
+    TP1: ['Transfer of part of a registered title'],
+    ADV1: ['Adverse possession application'],
+    TITLE_REGISTER: ['Official copy confirming registered ownership'],
+    TITLE_PLAN: ['Scale boundary map outlining property'],
+    PROPERTY_OWNERSHIP: ['Title Register & Title Plan bundle'],
+    MAP_SEARCH: ['GIS coordinate-based boundary mapping search'],
+    DEED_SEARCH: ['Historical transfers (TR1 forms) and leasehold deeds'],
+    PROPERTY_ALERT: ['Real-time fraud alert monitoring & email updates'],
+  }
+
+  const isScotland = formData.country === 'Scotland'
+
+  const getBasePrice = () => {
+    if (!selectedFormType) return 0
+    const code = selectedFormType.code
+    if (code === 'TITLE_REGISTER') return isScotland ? 36.00 : 30.00
+    if (code === 'TITLE_PLAN') return isScotland ? 36.00 : 30.00
+    if (code === 'PROPERTY_OWNERSHIP') return isScotland ? 60.00 : 50.00
+    return SERVICE_RETAIL_VALS[code] ?? selectedFormType.base_price
+  }
+
+  const basePrice = getBasePrice()
   const upsellTotal = (upsells.faster_docs ? UPSELL_PRICES.faster_docs : 0)
     + (upsells.printed_copy ? UPSELL_PRICES.printed_copy : 0)
     + (upsells.sms_updates ? UPSELL_PRICES.sms_updates : 0)
-  const addonTotal = (formData.addon_title_plan === 'yes' ? 36.00 : 0)
-    + (formData.addon_title_register === 'yes' ? 36.00 : 0)
-    + (formData.addon_flood_risk === 'yes' ? 25.00 : 0)
+
+  const addonTitlePlanPrice = isScotland ? 36.00 : 30.00
+  const addonTitleRegisterPrice = isScotland ? 36.00 : 30.00
+  const addonFloodRiskPrice = 10.00
+
+  const addonTotal = (formData.addon_title_plan === 'yes' ? addonTitlePlanPrice : 0)
+    + (formData.addon_title_register === 'yes' ? addonTitleRegisterPrice : 0)
+    + (formData.addon_flood_risk === 'yes' ? addonFloodRiskPrice : 0)
+
   const staticGrandTotal = basePrice + upsellTotal + hmlrFee + addonTotal
   const grandTotal = orderItems.length > 0 
     ? orderItems.reduce((sum, item) => sum + Number(item.amount), 0)
@@ -672,20 +709,38 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
           {/* Services List */}
           {selectedBrand && (
             <div className="mt-4 border border-slate-200 rounded-lg overflow-hidden flex flex-col">
-              {formTypes.map((ft, idx) => (
-                <div key={ft.code} className={cn(
-                  "flex items-center justify-between p-4 border-b border-slate-100 last:border-b-0",
-                  idx % 2 === 0 ? "bg-[#f8f9fa]" : "bg-white"
-                )}>
-                  <div className="font-semibold text-[#2c3e50] text-[15px]">{ft.name}</div>
-                  <button
-                    onClick={() => { setSelectedFormType(ft); setStep('wizard') }}
-                    className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[14px] font-semibold px-6 py-2 rounded transition-colors"
-                  >
-                    Create Order
-                  </button>
-                </div>
-              ))}
+              {formTypes.map((ft, idx) => {
+                const price = SERVICE_RETAIL_VALS[ft.code] ?? ft.base_price
+                const desc = SERVICE_DESCRIPTIONS[ft.code] || []
+                return (
+                  <div key={ft.code} className={cn(
+                    "flex items-start justify-between p-5 border-b border-slate-100 last:border-b-0 gap-4",
+                    idx % 2 === 0 ? "bg-[#f8f9fa]" : "bg-white"
+                  )}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="font-semibold text-[#2c3e50] text-[15px]">{ft.name}</span>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 whitespace-nowrap">
+                          {formatCurrency(price)} inc. VAT
+                        </span>
+                      </div>
+                      {desc.length > 0 && (
+                        <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5">
+                          {desc.map((d, i) => (
+                            <li key={i} className="text-[12px] text-slate-500 before:content-['•'] before:mr-1 before:text-slate-400">{d}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => { setSelectedFormType(ft); setStep('wizard') }}
+                      className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[14px] font-semibold px-6 py-2.5 rounded transition-colors whitespace-nowrap flex-shrink-0"
+                    >
+                      Create Order
+                    </button>
+                  </div>
+                )
+              })}
               {formTypes.length === 0 && (
                 <p className="text-sm text-slate-500 text-center py-6 bg-white">No services found for this brand.</p>
               )}
@@ -706,8 +761,10 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
           
           {/* Top Bar */}
           <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
-            <div className="flex items-center gap-4">
-              <h2 className="text-xl font-bold text-[#0B1B3A]">Step {wizardStep + 1} of 3</h2>
+            <div className="flex items-center gap-4 animate-fadeIn">
+              <h2 className="text-xl font-bold text-[#0B1B3A]">
+                Step {wizardStep + 1} of 3: <span className="text-blue-700 font-extrabold">{selectedFormType?.name}</span>
+              </h2>
               <button
                 type="button"
                 onClick={handleSaveDraft}
@@ -953,6 +1010,716 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
                 </div>
               </div>
 
+              {/* ─── COG1 – Change of Correspondence Address ─── */}
+              {selectedFormType?.code === 'COG1' && (
+                <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+                  <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">Change of Correspondence Address Details</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Date of Birth</label>
+                      <input type="date" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.date_of_birth ?? ''} onChange={e => setField('date_of_birth', e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="mt-6">
+                    <h4 className="font-semibold text-[#0B1B3A] text-sm mb-1">Previous Addresses</h4>
+                    <p className="text-[12px] text-slate-400 mb-3">Please provide your address history for the last 5 years.</p>
+                    <div className="space-y-4">
+                      {[1, 2, 3, 4].map(n => (
+                        <div key={n}>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Address {n}</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData[`prev_address_${n}`] ?? ''} onChange={e => setField(`prev_address_${n}`, e.target.value)} placeholder={`Previous address ${n}`} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-6 border-t border-slate-100 pt-4">
+                    <h4 className="font-semibold text-[#0B1B3A] text-sm mb-1">Documents Lodged with the Application</h4>
+                    <p className="text-[12px] text-slate-400 mb-3">Click on all options that apply:</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {[
+                        { key: 'doc_passport_photo', label: 'Passport-sized Photograph' },
+                        { key: 'doc_passport_copy', label: 'Copy of Passport' },
+                        { key: 'doc_utility_bill', label: 'Utility Bill' },
+                        { key: 'doc_mortgage_letter', label: 'Mortgage Lender Details/Letter' },
+                        { key: 'doc_council_tax', label: 'Council Tax Bill' },
+                      ].map(doc => {
+                        const checked = formData[doc.key] === 'yes';
+                        return (
+                          <label
+                            key={doc.key}
+                            className={cn(
+                              "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                              checked
+                                ? "border-emerald-600 bg-emerald-50/50 text-emerald-900 shadow-sm font-medium"
+                                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={e => setField(doc.key, e.target.checked ? 'yes' : '')}
+                              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4.5 w-4.5 cursor-pointer"
+                            />
+                            <span className="text-sm">{doc.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── SEV – Severance of Joint Tenancy ─── */}
+              {selectedFormType?.code === 'SEV' && (
+                <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+                  <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">Severance of Joint Tenancy Details</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Market Value of the Property (£)</label>
+                      <input type="number" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.market_value ?? ''} onChange={e => setField('market_value', e.target.value)} placeholder="0.00" />
+                    </div>
+                  </div>
+
+                  <div className="mt-6 border-t border-slate-100 pt-4">
+                    <h4 className="font-semibold text-[#0B1B3A] text-sm mb-1">Documents Lodged with the Application</h4>
+                    <p className="text-[12px] text-slate-400 mb-3">Click on all options that apply:</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {[
+                        { key: 'doc_mortgage_consent', label: "Mortgage Lender's Consent" },
+                        { key: 'doc_beneficial_consent', label: 'Consent from Beneficial Parties' },
+                        { key: 'doc_court_order', label: 'Court Order' },
+                        { key: 'doc_deed_evidence', label: 'Deed/Evidence that Restriction is No Longer Required' },
+                      ].map(doc => {
+                        const checked = formData[doc.key] === 'yes';
+                        return (
+                          <label
+                            key={doc.key}
+                            className={cn(
+                              "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                              checked
+                                ? "border-emerald-600 bg-emerald-50/50 text-emerald-900 shadow-sm font-medium"
+                                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={e => setField(doc.key, e.target.checked ? 'yes' : '')}
+                              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4.5 w-4.5 cursor-pointer"
+                            />
+                            <span className="text-sm">{doc.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── TP1 – Transfer of Part ─── */}
+              {selectedFormType?.code === 'TP1' && (
+                <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+                  <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">Transfer of Part Details</h3>
+                  <div className="space-y-6">
+                    <div>
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-2 block">Is there a mortgage on the property?</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {['yes', 'no'].map(v => {
+                          const checked = formData.is_mortgaged === v;
+                          return (
+                            <label
+                              key={v}
+                              className={cn(
+                                "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                                checked
+                                  ? "border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm font-medium"
+                                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                              )}
+                            >
+                              <input
+                                type="radio"
+                                name="tp1_mortgaged"
+                                checked={checked}
+                                onChange={() => setField('is_mortgaged', v)}
+                                className="border-slate-300 text-blue-600 focus:ring-blue-500 h-4.5 w-4.5 cursor-pointer"
+                              />
+                              <span className="text-sm">{v.charAt(0).toUpperCase() + v.slice(1)}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <h4 className="font-semibold text-[#0B1B3A] text-sm mb-3">Applicant / Registry Details</h4>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Name(s) Currently on the Register</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.names_on_register ?? ''} onChange={e => setField('names_on_register', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Applicant Name</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_name ?? ''} onChange={e => setField('applicant_name', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Applicant Address</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_address ?? ''} onChange={e => setField('applicant_address', e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-2 block">Consideration</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          { v: 'gift', l: 'Gift' },
+                          { v: 'money_paid', l: 'Money Paid' }
+                        ].map(({ v, l }) => {
+                          const checked = formData.consideration_type === v;
+                          return (
+                            <label
+                              key={v}
+                              className={cn(
+                                "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                                checked
+                                  ? "border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm font-medium"
+                                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                              )}
+                            >
+                              <input
+                                type="radio"
+                                name="tp1_consideration"
+                                checked={checked}
+                                onChange={() => setField('consideration_type', v)}
+                                className="border-slate-300 text-blue-600 focus:ring-blue-500 h-4.5 w-4.5 cursor-pointer"
+                              />
+                              <span className="text-sm">{l}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Property Value (£)</label>
+                      <input type="number" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={propertyValue} onChange={e => setPropertyValue(e.target.value)} placeholder="0.00" />
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-2 block">Ownership After Transfer</label>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {[
+                          { v: 'Joint Tenants', l: 'Joint Tenancy' },
+                          { v: 'Tenants in Common', l: 'Tenants in Common' },
+                          { v: 'Sole Owner', l: 'Sole Ownership' }
+                        ].map(({ v, l }) => {
+                          const checked = formData.ownership_after_transfer === v;
+                          return (
+                            <label
+                              key={v}
+                              className={cn(
+                                "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                                checked
+                                  ? "border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm font-medium"
+                                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                              )}
+                            >
+                              <input
+                                type="radio"
+                                name="tp1_ownership"
+                                checked={checked}
+                                onChange={() => setField('ownership_after_transfer', v)}
+                                className="border-slate-300 text-blue-600 focus:ring-blue-500 h-4.5 w-4.5 cursor-pointer"
+                              />
+                              <span className="text-sm">{l}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── AS1 – Assent of Whole (Inheritance) ─── */}
+              {selectedFormType?.code === 'AS1' && (
+                <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+                  <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">Assent of Whole (Inheritance) Details</h3>
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Property Value (£)</label>
+                        <input type="number" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={propertyValue} onChange={e => setPropertyValue(e.target.value)} placeholder="0.00" />
+                      </div>
+                      <div>
+                        <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Submission Fee (£)</label>
+                        <div className="form-input w-full h-11 border-slate-300 rounded text-sm bg-slate-50 flex items-center text-slate-500 cursor-not-allowed font-medium">
+                          {hmlrFee > 0 ? formatCurrency(hmlrFee) : '—'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <h4 className="font-semibold text-[#0B1B3A] text-sm mb-3">Applicants details</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Full Name</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_name ?? ''} onChange={e => setField('applicant_name', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Address</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_address ?? ''} onChange={e => setField('applicant_address', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Email</label>
+                          <input type="email" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_email ?? ''} onChange={e => setField('applicant_email', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Phone</label>
+                          <input type="tel" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_phone ?? ''} onChange={e => setField('applicant_phone', e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <h4 className="font-semibold text-[#0B1B3A] text-sm mb-3">Who will be on the register</h4>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Name</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.new_owner_name ?? ''} onChange={e => setField('new_owner_name', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Address</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.new_owner_address ?? ''} onChange={e => setField('new_owner_address', e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-2 block">Tenancy Type</label>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {[
+                          { v: 'Sole Owner', l: 'Sole Name' },
+                          { v: 'Joint Tenants', l: 'Joint Tenancy' },
+                          { v: 'Tenants in Common', l: 'Tenants in Common' }
+                        ].map(({ v, l }) => {
+                          const checked = formData.ownership_type === v;
+                          return (
+                            <label
+                              key={v}
+                              className={cn(
+                                "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                                checked
+                                  ? "border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm font-medium"
+                                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                              )}
+                            >
+                              <input
+                                type="radio"
+                                name="as1_ownership"
+                                checked={checked}
+                                onChange={() => setField('ownership_type', v)}
+                                className="border-slate-300 text-blue-600 focus:ring-blue-500 h-4.5 w-4.5 cursor-pointer"
+                              />
+                              <span className="text-sm">{l}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <h4 className="font-semibold text-[#0B1B3A] text-sm mb-3">Deceased Person</h4>
+                      <div>
+                        <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Name of Deceased</label>
+                        <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.deceased_name ?? ''} onChange={e => setField('deceased_name', e.target.value)} />
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <h4 className="font-semibold text-[#0B1B3A] text-sm mb-1">Documents Lodged with the Application</h4>
+                      <p className="text-[12px] text-slate-400 mb-3">Click on all options that apply:</p>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {[
+                          { key: 'doc_grant_probate', label: 'Grant of Probate' },
+                          { key: 'doc_letters_admin', label: 'Letter of Administration' },
+                          { key: 'doc_death_certificate', label: 'Death Certificate' },
+                        ].map(doc => {
+                          const checked = formData[doc.key] === 'yes';
+                          return (
+                            <label
+                              key={doc.key}
+                              className={cn(
+                                "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                                checked
+                                  ? "border-emerald-600 bg-emerald-50/50 text-emerald-900 shadow-sm font-medium"
+                                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={e => setField(doc.key, e.target.checked ? 'yes' : '')}
+                                className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4.5 w-4.5 cursor-pointer"
+                              />
+                              <span className="text-sm">{doc.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── AP1 – Name Change ─── */}
+              {selectedFormType?.code === 'AP1' && (
+                <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+                  <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">Name Change Details</h3>
+                  <div className="space-y-6">
+                    <div className="border-b border-slate-100 pb-4">
+                      <h4 className="font-semibold text-[#0B1B3A] text-sm mb-3">Applicants Details</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Name</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_name ?? ''} onChange={e => setField('applicant_name', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Contact Number</label>
+                          <input type="tel" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_phone ?? ''} onChange={e => setField('applicant_phone', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Email</label>
+                          <input type="email" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_email ?? ''} onChange={e => setField('applicant_email', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Postal Address</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_address ?? ''} onChange={e => setField('applicant_address', e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-2 block">Is the Correspondence Address Also Changing?</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {['yes', 'no'].map(v => {
+                          const checked = formData.correspondence_changing === v;
+                          return (
+                            <label
+                              key={v}
+                              className={cn(
+                                "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                                checked
+                                  ? "border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm font-medium"
+                                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                              )}
+                            >
+                              <input
+                                type="radio"
+                                name="ap1_correspondence"
+                                checked={checked}
+                                onChange={() => setField('correspondence_changing', v)}
+                                className="border-slate-300 text-blue-600 focus:ring-blue-500 h-4.5 w-4.5 cursor-pointer"
+                              />
+                              <span className="text-sm">{v.charAt(0).toUpperCase() + v.slice(1)}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <h4 className="font-semibold text-[#0B1B3A] text-sm mb-1">Documents Lodged with the Application</h4>
+                      <p className="text-[12px] text-slate-400 mb-3">Click on all options that apply:</p>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {[
+                          { key: 'doc_mortgage_consent', label: 'Mortgage Certificates' },
+                          { key: 'doc_deed_poll', label: 'Deed Poll' },
+                          { key: 'doc_divorce_order', label: 'Divorce Decree' },
+                        ].map(doc => {
+                          const checked = formData[doc.key] === 'yes';
+                          return (
+                            <label
+                              key={doc.key}
+                              className={cn(
+                                "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                                checked
+                                  ? "border-emerald-600 bg-emerald-50/50 text-emerald-900 shadow-sm font-medium"
+                                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={e => setField(doc.key, e.target.checked ? 'yes' : '')}
+                                className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4.5 w-4.5 cursor-pointer"
+                              />
+                              <span className="text-sm">{doc.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── DJP – Death of Joint Proprietor ─── */}
+              {selectedFormType?.code === 'DJP' && (
+                <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+                  <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">Death of Joint Proprietor Details</h3>
+                  <div className="space-y-6">
+                    <div className="border-b border-slate-100 pb-4">
+                      <h4 className="font-semibold text-[#0B1B3A] text-sm mb-3">Deceased Proprietor Details</h4>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Name of Deceased</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.deceased_name ?? ''} onChange={e => setField('deceased_name', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Date of Death</label>
+                          <input type="date" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.date_of_death ?? ''} onChange={e => setField('date_of_death', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Town/Area of Death</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.town_of_death ?? ''} onChange={e => setField('town_of_death', e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-b border-slate-100 pb-4">
+                      <h4 className="font-semibold text-[#0B1B3A] text-sm mb-3">Applicants Details</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Name</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_name ?? ''} onChange={e => setField('applicant_name', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Contact Number</label>
+                          <input type="tel" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_phone ?? ''} onChange={e => setField('applicant_phone', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Email</label>
+                          <input type="email" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_email ?? ''} onChange={e => setField('applicant_email', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Postal Address</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_address ?? ''} onChange={e => setField('applicant_address', e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold text-[#0B1B3A] text-sm mb-1">Documents Lodged with the Application</h4>
+                      <p className="text-[12px] text-slate-400 mb-3">Click on all options that apply:</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {[
+                          { key: 'doc_death_certificate', label: 'Death Certificate' },
+                          { key: 'doc_grant_probate', label: 'Grant of Probate Letter' },
+                        ].map(doc => {
+                          const checked = formData[doc.key] === 'yes';
+                          return (
+                            <label
+                              key={doc.key}
+                              className={cn(
+                                "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                                checked
+                                  ? "border-emerald-600 bg-emerald-50/50 text-emerald-900 shadow-sm font-medium"
+                                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={e => setField(doc.key, e.target.checked ? 'yes' : '')}
+                                className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4.5 w-4.5 cursor-pointer"
+                              />
+                              <span className="text-sm">{doc.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── TR1 – Transfer of Equity ─── */}
+              {selectedFormType?.code === 'TR1' && (
+                <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
+                  <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">Transfer of Equity Details</h3>
+                  <div className="space-y-6">
+                    <div>
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-2 block">Is the Property Mortgaged?</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {['yes', 'no'].map(v => {
+                          const checked = formData.is_mortgaged === v;
+                          return (
+                            <label
+                              key={v}
+                              className={cn(
+                                "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                                checked
+                                  ? "border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm font-medium"
+                                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                              )}
+                            >
+                              <input
+                                type="radio"
+                                name="tr1_mortgaged"
+                                checked={checked}
+                                onChange={() => setField('is_mortgaged', v)}
+                                className="border-slate-300 text-blue-600 focus:ring-blue-500 h-4.5 w-4.5 cursor-pointer"
+                              />
+                              <span className="text-sm">{v.charAt(0).toUpperCase() + v.slice(1)}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {formData.is_mortgaged === 'yes' && (
+                      <div className="border-t border-slate-100 pt-4">
+                        <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-2 block">Have you got consent of mortgage lenders?</label>
+                        <div className="grid grid-cols-2 gap-3">
+                          {['yes', 'no'].map(v => {
+                            const checked = formData.mortgage_consent_obtained === v;
+                            return (
+                              <label
+                                key={v}
+                                className={cn(
+                                  "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                                  checked
+                                    ? "border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm font-medium"
+                                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                                )}
+                              >
+                                <input
+                                  type="radio"
+                                  name="tr1_mortgage_consent"
+                                  checked={checked}
+                                  onChange={() => setField('mortgage_consent_obtained', v)}
+                                  className="border-slate-300 text-blue-600 focus:ring-blue-500 h-4.5 w-4.5 cursor-pointer"
+                                />
+                                <span className="text-sm">{v.charAt(0).toUpperCase() + v.slice(1)}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <h4 className="font-semibold text-[#0B1B3A] text-sm mb-3">Applicants Details</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Full Name</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_name ?? ''} onChange={e => setField('applicant_name', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Address</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_address ?? ''} onChange={e => setField('applicant_address', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Email</label>
+                          <input type="email" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_email ?? ''} onChange={e => setField('applicant_email', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Phone</label>
+                          <input type="tel" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.applicant_phone ?? ''} onChange={e => setField('applicant_phone', e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <h4 className="font-semibold text-[#0B1B3A] text-sm mb-3">Who will be on the register</h4>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Name</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.new_owner_name ?? ''} onChange={e => setField('new_owner_name', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Address</label>
+                          <input className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={formData.new_owner_address ?? ''} onChange={e => setField('new_owner_address', e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-2 block">Consideration</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          { v: 'gift', l: 'Gift' },
+                          { v: 'money_exchanged', l: 'Money Been Exchanged' }
+                        ].map(({ v, l }) => {
+                          const checked = formData.consideration_type === v;
+                          return (
+                            <label
+                              key={v}
+                              className={cn(
+                                "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                                checked
+                                  ? "border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm font-medium"
+                                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                              )}
+                            >
+                              <input
+                                type="radio"
+                                name="tr1_consideration"
+                                checked={checked}
+                                onChange={() => setField('consideration_type', v)}
+                                className="border-slate-300 text-blue-600 focus:ring-blue-500 h-4.5 w-4.5 cursor-pointer"
+                              />
+                              <span className="text-sm">{l}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-1 block">Property Value (£)</label>
+                      <input type="number" className="form-input w-full h-11 border-slate-300 rounded text-sm focus:ring-[#0B1B3A]" value={propertyValue} onChange={e => setPropertyValue(e.target.value)} placeholder="0.00" />
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4">
+                      <label className="form-label text-[#2c3e50] font-semibold text-[13px] mb-2 block">Tenancy</label>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {[
+                          { v: 'Joint Tenants', l: 'Joint Tenancy' },
+                          { v: 'Sole Owner', l: 'Sole Owner' },
+                          { v: 'Tenants in Common', l: 'Tenants in Common' }
+                        ].map(({ v, l }) => {
+                          const checked = formData.ownership_type === v;
+                          return (
+                            <label
+                              key={v}
+                              className={cn(
+                                "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all duration-150 select-none",
+                                checked
+                                  ? "border-blue-600 bg-blue-50/50 text-blue-900 shadow-sm font-medium"
+                                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                              )}
+                            >
+                              <input
+                                type="radio"
+                                name="tr1_ownership"
+                                checked={checked}
+                                onChange={() => setField('ownership_type', v)}
+                                className="border-slate-300 text-blue-600 focus:ring-blue-500 h-4.5 w-4.5 cursor-pointer"
+                              />
+                              <span className="text-sm">{l}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {feeScale && (
                 <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
                   <h3 className="text-[20px] font-medium text-[#0B1B3A] mb-5">HMLR Additional Details</h3>
@@ -1159,7 +1926,9 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
           {/* Top Bar */}
           <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
             <div className="flex items-center gap-4">
-              <h2 className="text-xl font-bold text-[#0B1B3A]">Step 3 of 3: Review & Payment</h2>
+              <h2 className="text-xl font-bold text-[#0B1B3A]">
+                Step 3 of 3: <span className="text-blue-700 font-extrabold">{selectedFormType?.name}</span> (Review & Payment)
+              </h2>
               <button
                 type="button"
                 onClick={handleSaveDraft}
@@ -1180,203 +1949,206 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
             <div className="bg-[#0B1B3A] h-full transition-all duration-300" style={{ width: '100%' }} />
           </div>
 
-          {/* Contact summary */}
-          <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
-            <div className="section-heading">Contact Details</div>
-            <table className="w-full text-sm">
-              <tbody>
-                {[
-                  ['Name', `${formData.title ?? ''} ${formData.first_name ?? ''} ${formData.last_name ?? ''}`.trim()],
-                  ['Email', formData.email],
-                  ['Phone', formData.phone],
-                  ['Address', [formData.address_line1, formData.address_line2, formData.city, formData.county, formData.postcode].filter(Boolean).join(', ')],
-                ].map(([label, value]) => value ? (
-                  <tr key={label} className="border-t border-outline-gray-2">
-                    <td className="py-2 pr-4 font-medium text-ink-gray-5 w-28">{label}</td>
-                    <td className="py-2 text-ink-gray-9">{value}</td>
-                  </tr>
-                ) : null)}
-              </tbody>
-            </table>
-          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Column: Form Details & Actions */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Contact summary */}
+              <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm">
+                <div className="section-heading">Contact Details</div>
+                <table className="w-full text-sm">
+                  <tbody>
+                    {[
+                      ['Name', `${formData.title ?? ''} ${formData.first_name ?? ''} ${formData.last_name ?? ''}`.trim()],
+                      ['Email', formData.email],
+                      ['Phone', formData.phone],
+                      ['Address', [formData.address_line1, formData.address_line2, formData.city, formData.county, formData.postcode].filter(Boolean).join(', ')],
+                    ].map(([label, value]) => value ? (
+                      <tr key={label} className="border-t border-outline-gray-2">
+                        <td className="py-2 pr-4 font-medium text-ink-gray-5 w-28">{label}</td>
+                        <td className="py-2 text-ink-gray-9">{value}</td>
+                      </tr>
+                    ) : null)}
+                  </tbody>
+                </table>
+              </div>
 
-          {/* Price breakdown */}
-          <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <div className="section-heading">Line Items</div>
-              <button 
-                onClick={() => {
-                  const defaultType = ITEM_TYPES[0]
-                  const defaultAmount = DEFAULT_PRICES[defaultType] ?? 0
-                  setOrderItems(prev => [...prev, { id: crypto.randomUUID(), item_type: defaultType, amount: defaultAmount }])
-                }} 
-                className="text-xs font-bold bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg border border-purple-200 hover:bg-purple-100 transition-colors"
-              >
-                + Add Item
-              </button>
-            </div>
-            
-            <div className="space-y-3">
-              {orderItems.map((item) => (
-                <div key={item.id} className="flex items-center gap-3">
-                  <select 
-                    className="form-input flex-1 text-sm text-slate-800 py-1.5" 
-                    value={item.item_type} 
-                    onChange={e => {
-                      const typeStr = e.target.value
-                      const defaultAmount = DEFAULT_PRICES[typeStr] ?? 0
-                      setOrderItems(prev => prev.map(it => it.id === item.id ? { ...it, item_type: typeStr, amount: defaultAmount } : it))
-                    }}
-                  >
-                    {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                  
-                  <div className="relative w-32">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-gray-4 text-sm">£</span>
-                    <input
-                      type="number" 
-                      step="0.01" 
-                      className="form-input pl-7 w-full text-sm text-slate-800 py-1.5"
-                      value={item.amount}
-                      onChange={e => {
-                        setOrderItems(prev => prev.map(it => it.id === item.id ? { ...it, amount: Number(e.target.value) } : it))
-                      }}
-                    />
-                  </div>
-                  
+              {/* Price breakdown */}
+              <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="section-heading">Line Items</div>
                   <button 
                     onClick={() => {
-                      setOrderItems(prev => prev.filter(it => it.id !== item.id))
+                      const defaultType = ITEM_TYPES[0]
+                      const defaultAmount = DEFAULT_PRICES[defaultType] ?? 0
+                      setOrderItems(prev => [...prev, { id: crypto.randomUUID(), item_type: defaultType, amount: defaultAmount }])
                     }} 
-                    className="text-danger-red hover:text-red-700 p-1"
+                    className="text-xs font-bold bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg border border-purple-200 hover:bg-purple-100 transition-colors"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    + Add Item
                   </button>
                 </div>
-              ))}
-              
-              {orderItems.length === 0 && (
-                <p className="text-sm text-ink-gray-4 text-center py-4">No line items. Click "Add Item" to add one.</p>
+                
+                <div className="space-y-3">
+                  {orderItems.map((item) => (
+                    <div key={item.id} className="flex items-center gap-3">
+                      <select 
+                        className="form-input flex-1 text-sm text-slate-800 py-1.5" 
+                        value={item.item_type} 
+                        onChange={e => {
+                          const typeStr = e.target.value
+                          const defaultAmount = DEFAULT_PRICES[typeStr] ?? 0
+                          setOrderItems(prev => prev.map(it => it.id === item.id ? { ...it, item_type: typeStr, amount: defaultAmount } : it))
+                        }}
+                      >
+                        {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                      
+                      <div className="relative w-32">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-gray-4 text-sm">£</span>
+                        <input
+                          type="number" 
+                          step="0.01" 
+                          className="form-input pl-7 w-full text-sm text-slate-800 py-1.5"
+                          value={item.amount}
+                          onChange={e => {
+                            setOrderItems(prev => prev.map(it => it.id === item.id ? { ...it, amount: Number(e.target.value) } : it))
+                          }}
+                        />
+                      </div>
+                      
+                      <button 
+                        onClick={() => {
+                          setOrderItems(prev => prev.filter(it => it.id !== item.id))
+                        }} 
+                        className="text-danger-red hover:text-red-700 p-1"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  
+                  {orderItems.length === 0 && (
+                    <p className="text-sm text-ink-gray-4 text-center py-4">No line items. Click "Add Item" to add one.</p>
+                  )}
+                </div>
+
+                <div className="mt-4 flex items-center justify-between border-t border-outline-gray-3 pt-3">
+                  <span className="font-bold text-ink-gray-9">Total Fee</span>
+                  <span className="text-xl font-bold text-ink-gray-9">{formatCurrency(grandTotal)} <span className="text-xs font-normal text-ink-gray-4">Including VAT</span></span>
+                </div>
+              </div>
+
+              {/* T&Cs */}
+              <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-800">
+                <div className="font-semibold mb-2">Terms & Conditions</div>
+                <p className="leading-relaxed">{tc}</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="tc" checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} className="h-4 w-4 rounded" />
+                <label htmlFor="tc" className="text-sm text-ink-gray-7 cursor-pointer">
+                  I accept the terms & conditions
+                </label>
+              </div>
+
+              {/* Payment Options */}
+              {paymentMode === 'card' && paymentClientSecret && createdOrderId ? (
+                <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm">
+                  <div className="section-heading flex items-center gap-2">
+                    <CreditCard className="h-4 w-4" />
+                    Secure Card Payment
+                  </div>
+                  <div className="mt-3 mb-3 rounded-lg bg-surface-blue border border-accent-blue/20 px-4 py-3 text-sm text-ink-blue">
+                    <strong>Secure Payment</strong> — Card data is handled by Stripe and never touches our servers.
+                  </div>
+                  <Elements
+                    stripe={stripePromise}
+                    options={{
+                      clientSecret: paymentClientSecret,
+                      appearance: {
+                        theme: 'stripe',
+                        variables: { colorPrimary: '#16243B', borderRadius: '8px' },
+                      },
+                    }}
+                  >
+                    <CreateOrderPaymentForm
+                      orderId={createdOrderId}
+                      amount={grandTotal}
+                      onSuccess={() => {
+                        toast.success('Payment processed successfully!')
+                        router.push(`/admin/orders/${createdOrderId}`)
+                      }}
+                      onCancel={() => {
+                        setPaymentMode(null)
+                        setPaymentClientSecret(null)
+                        toast.info('Order created but payment skipped. You can take payment from the order page.')
+                        router.push(`/admin/orders/${createdOrderId}`)
+                      }}
+                    />
+                  </Elements>
+                </div>
+              ) : (
+                <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm">
+                  <div className="section-heading">Payment Method</div>
+                  <p className="text-sm text-ink-gray-5 mb-4">Choose how to collect payment for this order.</p>
+                  <div className="space-y-3">
+                    <button
+                      onClick={handleSendPaymentLink}
+                      disabled={submitting || !termsAccepted}
+                      className="w-full flex items-center gap-4 rounded-xl border-2 border-outline-gray-3 hover:border-accent-blue hover:bg-surface-blue/30 p-5 text-left transition-all group"
+                    >
+                      <div className="h-12 w-12 rounded-lg bg-surface-blue flex items-center justify-center flex-shrink-0">
+                        {generatingLink ? <Loader2 className="h-6 w-6 text-accent-blue animate-spin" /> :
+                         copiedLink ? <Check className="h-6 w-6 text-success-green" /> :
+                         <Link2 className="h-6 w-6 text-accent-blue" />}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-ink-gray-9 group-hover:text-accent-blue">
+                          {copiedLink ? 'Link Copied!' : 'Send Payment Link'}
+                        </div>
+                        <div className="text-xs text-ink-gray-4 mt-0.5">Create order & generate a Stripe payment link to send to the customer</div>
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={handleTakePaymentNow}
+                      disabled={submitting || !termsAccepted}
+                      className="w-full flex items-center gap-4 rounded-xl border-2 border-slate-200 hover:border-green-600 hover:bg-green-50/50 p-5 text-left transition-all group"
+                    >
+                      <div className="h-12 w-12 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
+                        {submitting && !generatingLink ? <Loader2 className="h-6 w-6 text-green-600 animate-spin" /> :
+                         <CreditCard className="h-6 w-6 text-green-600" />}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-slate-900 group-hover:text-green-700">Take Payment Now</div>
+                        <div className="text-xs text-slate-400 mt-0.5">Create order & enter card details securely via Stripe Elements</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
 
-            <div className="mt-4 flex items-center justify-between border-t border-outline-gray-3 pt-3">
-              <span className="font-bold text-ink-gray-9">Total Fee</span>
-              <span className="text-xl font-bold text-ink-gray-9">{formatCurrency(grandTotal)} <span className="text-xs font-normal text-ink-gray-4">Including VAT</span></span>
-            </div>
-          </div>
-
-
-          {/* Notes */}
-          <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
-            <div className="section-heading mb-2">Order Notes / Comments</div>
-            <textarea
-              className="form-input w-full resize-none text-xs"
-              rows={3}
-              placeholder="Add any internal comments or notes about this order..."
-              value={creationNotes}
-              onChange={e => setCreationNotes(e.target.value)}
-            />
-          </div>
-
-          {/* T&Cs */}
-          <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-800">
-            <div className="font-semibold mb-2">Terms & Conditions</div>
-            <p className="leading-relaxed">{tc}</p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <input type="checkbox" id="tc" checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} className="h-4 w-4 rounded" />
-            <label htmlFor="tc" className="text-sm text-ink-gray-7 cursor-pointer">
-              I accept the terms & conditions
-            </label>
-          </div>
-
-          {/* Payment Options */}
-          {paymentMode === 'card' && paymentClientSecret && createdOrderId ? (
-            <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
-              <div className="section-heading flex items-center gap-2">
-                <CreditCard className="h-4 w-4" />
-                Secure Card Payment
-              </div>
-              <div className="mt-3 mb-3 rounded-lg bg-surface-blue border border-accent-blue/20 px-4 py-3 text-sm text-ink-blue">
-                <strong>Secure Payment</strong> — Card data is handled by Stripe and never touches our servers.
-              </div>
-              <Elements
-                stripe={stripePromise}
-                options={{
-                  clientSecret: paymentClientSecret,
-                  appearance: {
-                    theme: 'stripe',
-                    variables: { colorPrimary: '#16243B', borderRadius: '8px' },
-                  },
-                }}
-              >
-                <CreateOrderPaymentForm
-                  orderId={createdOrderId}
-                  amount={grandTotal}
-                  onSuccess={() => {
-                    toast.success('Payment processed successfully!')
-                    router.push(`/admin/orders/${createdOrderId}`)
-                  }}
-                  onCancel={() => {
-                    setPaymentMode(null)
-                    setPaymentClientSecret(null)
-                    toast.info('Order created but payment skipped. You can take payment from the order page.')
-                    router.push(`/admin/orders/${createdOrderId}`)
-                  }}
+            {/* Right Column: Sidebar (Notes) */}
+            <div className="lg:col-span-1">
+              <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm h-full flex flex-col min-h-[300px]">
+                <div className="section-heading mb-2">Order Notes / Comments</div>
+                <textarea
+                  className="form-input w-full resize-none text-xs flex-1 min-h-[220px]"
+                  placeholder="Add any internal comments or notes about this order..."
+                  value={creationNotes}
+                  onChange={e => setCreationNotes(e.target.value)}
                 />
-              </Elements>
+              </div>
             </div>
-          ) : (
-            <>
-              <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mb-6">
-                <div className="section-heading">Payment Method</div>
-                <p className="text-sm text-ink-gray-5 mb-4">Choose how to collect payment for this order.</p>
-                <div className="space-y-3">
-                  <button
-                    onClick={handleSendPaymentLink}
-                    disabled={submitting || !termsAccepted}
-                    className="w-full flex items-center gap-4 rounded-xl border-2 border-outline-gray-3 hover:border-accent-blue hover:bg-surface-blue/30 p-5 text-left transition-all group"
-                  >
-                    <div className="h-12 w-12 rounded-lg bg-surface-blue flex items-center justify-center flex-shrink-0">
-                      {generatingLink ? <Loader2 className="h-6 w-6 text-accent-blue animate-spin" /> :
-                       copiedLink ? <Check className="h-6 w-6 text-success-green" /> :
-                       <Link2 className="h-6 w-6 text-accent-blue" />}
-                    </div>
-                    <div>
-                      <div className="font-semibold text-ink-gray-9 group-hover:text-accent-blue">
-                        {copiedLink ? 'Link Copied!' : 'Send Payment Link'}
-                      </div>
-                      <div className="text-xs text-ink-gray-4 mt-0.5">Create order & generate a Stripe payment link to send to the customer</div>
-                    </div>
-                  </button>
+          </div>
 
-                  <button
-                    onClick={handleTakePaymentNow}
-                    disabled={submitting || !termsAccepted}
-                    className="w-full flex items-center gap-4 rounded-xl border-2 border-slate-200 hover:border-green-600 hover:bg-green-50/50 p-5 text-left transition-all group"
-                  >
-                    <div className="h-12 w-12 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
-                      {submitting && !generatingLink ? <Loader2 className="h-6 w-6 text-green-600 animate-spin" /> :
-                       <CreditCard className="h-6 w-6 text-green-600" />}
-                    </div>
-                    <div>
-                      <div className="font-semibold text-slate-900 group-hover:text-green-700">Take Payment Now</div>
-                      <div className="text-xs text-slate-400 mt-0.5">Create order & enter card details securely via Stripe Elements</div>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex justify-start mt-8 pb-10 gap-4">
-                <button onClick={() => {
-                  setStep('wizard')
-                  setWizardStep(1)
-                }} className="border border-slate-300 bg-white hover:bg-slate-50 transition-colors text-[#2c3e50] font-medium px-8 py-2.5 rounded shadow-sm">Previous</button>
-              </div>
-            </>
-          )}
+          <div className="flex justify-start mt-8 pb-10 gap-4">
+            <button onClick={() => {
+              setStep('wizard')
+              setWizardStep(1)
+            }} className="border border-slate-300 bg-white hover:bg-slate-50 transition-colors text-[#2c3e50] font-medium px-8 py-2.5 rounded shadow-sm">Previous</button>
+          </div>
         </div>
       </div>
     )
