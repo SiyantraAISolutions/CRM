@@ -921,7 +921,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      setPaymentClientSecret(data.clientSecret)
+      setPaymentClientSecret(data.client_secret)
       setShowPaymentForm(true)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to initialize payment'

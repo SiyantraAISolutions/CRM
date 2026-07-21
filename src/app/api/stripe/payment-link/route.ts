@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { createPaymentLink } from '@/lib/stripe'
+
+function getSupabaseAdmin() {
+  return createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,8 +18,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Use admin client to bypass RLS for role check and order lookup
+    const adminSupabase = getSupabaseAdmin()
+
     // Check role — director, admin, sales can generate payment links
-    const { data: profile } = await supabase
+    const { data: profile } = await adminSupabase
       .from('users')
       .select('role')
       .eq('id', user.id)
@@ -28,8 +39,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'order_id and amount are required' }, { status: 400 })
     }
 
-    // Fetch order to get business_id
-    const { data: order } = await supabase
+    // Fetch order to get business_id using admin client to bypass RLS
+    const { data: order } = await adminSupabase
       .from('orders')
       .select('business_id, first_name, last_name')
       .eq('id', order_id)
@@ -48,11 +59,6 @@ export async function POST(req: NextRequest) {
     })
 
     // Add timeline note
-    const adminSupabase = (await import('@supabase/supabase-js')).createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-
     await adminSupabase.from('order_notes').insert({
       order_id,
       user_id: user.id,

@@ -26,7 +26,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Only directors can issue refunds
-    const { data: profile } = await supabase
+    const adminSupabase = getSupabaseAdmin()
+    const { data: profile } = await adminSupabase
       .from('users')
       .select('role')
       .eq('id', user.id)
@@ -50,7 +51,6 @@ export async function POST(req: NextRequest) {
     })
 
     // Update payment record in DB
-    const adminSupabase = getSupabaseAdmin()
 
     await adminSupabase
       .from('payments')

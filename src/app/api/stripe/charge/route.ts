@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { createPaymentIntent } from '@/lib/stripe'
+
+function getSupabaseAdmin() {
+  return createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+}
 
 /**
  * POST /api/stripe/charge
@@ -17,8 +25,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Check role — director & admin can take payments
-    const { data: profile } = await supabase
+    // Use admin client to bypass RLS for role check and order lookup
+    const adminSupabase = getSupabaseAdmin()
+
+    // Check role — director, admin & sales can take payments
+    const { data: profile } = await adminSupabase
       .from('users')
       .select('role')
       .eq('id', user.id)
@@ -35,8 +46,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'order_id and amount are required' }, { status: 400 })
     }
 
-    // Fetch order details
-    const { data: order } = await supabase
+    // Fetch order details using admin client to bypass RLS
+    const { data: order } = await adminSupabase
       .from('orders')
       .select('business_id, email, first_name, last_name')
       .eq('id', order_id)
