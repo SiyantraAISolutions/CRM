@@ -1,4 +1,4 @@
-import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import DashboardClient from './DashboardClient'
@@ -24,10 +24,7 @@ export default async function DashboardPage({ searchParams }: Props) {
   if (role === 'sales') redirect(`/admin/sales${querySuffix}`)
 
   // Admin dashboard
-  const supabase = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const supabase = await createClient()
   const now = new Date()
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
   const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString()

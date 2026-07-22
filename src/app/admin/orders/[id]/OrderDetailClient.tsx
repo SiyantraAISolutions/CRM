@@ -583,7 +583,6 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
     fetchData()
   }, [supabase, order.id])
 
-  const canTakePayment = !currentRole || ['admin', 'director', 'sales'].includes(currentRole)
   const isAdminOrDirector = currentRole === 'admin' || currentRole === 'director'
 
   const shortId = String(order.id).slice(-6).toUpperCase()
@@ -1566,7 +1565,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
             )}
 
             {/* Status Actions */}
-            {canTakePayment && (
+            {isAdminOrDirector && (
               <div className="flex flex-wrap items-center gap-3 mt-16">
                 {status !== 'paid' && !showPaymentForm && (
                   <button
