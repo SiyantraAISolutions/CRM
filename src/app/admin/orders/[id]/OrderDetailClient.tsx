@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink, Calendar, RefreshCcw, Clock, ArrowRight, MessageSquare, AlertCircle, ShieldCheck, Search, Upload, Eye, X, FileText, Phone } from 'lucide-react'
+import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink, Calendar, RefreshCcw, Clock, ArrowRight, MessageSquare, AlertCircle, ShieldCheck, Search, Upload, Eye, X, FileText, Phone, Mail, Send } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDateTime, timeAgo, cn } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -254,12 +254,120 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   const [uploadType, setUploadType] = useState('File Upload')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
+  // Send Template Email State
+  const [showSendTemplateModal, setShowSendTemplateModal] = useState(false)
+  const [sendTo, setSendTo] = useState('')
+  const [sendSubject, setSendSubject] = useState('')
+  const [sendBody, setSendBody] = useState('')
+  const [isSendingEmail, setIsSendingEmail] = useState(false)
+
   // Monitor Tracking State
   const [monitorStage, setMonitorStage] = useState((order as any).monitor_stage || 'awaiting')
   const [submissionReqs, setSubmissionReqs] = useState((order as any).submission_requirements || { id_verified: false, form_signed: false, docs_uploaded: false })
   const [documentUrl, setDocumentUrl] = useState(order.document_url || null)
   const [uploadingDoc, setUploadingDoc] = useState(false)
   const [paymentVerifiedBy, setPaymentVerifiedBy] = useState((order as any).payment_verified_by || (order as any).submission_requirements?.payment_verified_by || '')
+
+  // Helper to format and apply a template to subject and body
+  const applyTemplate = (t: { id: string; subject: string; body: string }) => {
+    setSelectedTemplateId(t.id)
+    const shortId = String(order.id).slice(-6).toUpperCase()
+    const fullName = `${order.first_name || ''} ${order.last_name || ''}`.trim() || 'Customer'
+    const fullAddress = [order.address_line1, order.postcode].filter(Boolean).join(', ')
+
+    let subj = t.subject || `Application Update - Order #${shortId}`
+    let bod = t.body || `Thank you for your application (Reference #${shortId}).`
+
+    const replacements: Record<string, string> = {
+      '{{first_name}}': order.first_name || 'Customer',
+      '{{last_name}}': order.last_name || '',
+      '{{full_name}}': fullName,
+      '{{name}}': fullName,
+      '{{customer_name}}': fullName,
+      '{{email}}': order.email || '',
+      '{{order_id}}': shortId,
+      '{{order_number}}': shortId,
+      '{{reference}}': shortId,
+      '{{title_number}}': order.title_number || 'N/A',
+      '{{address}}': fullAddress || 'N/A',
+      '{{property_address}}': fullAddress || 'N/A',
+      '{{amount}}': formatCurrency(order.amount_total || 0),
+      '{{support_phone}}': '0333 577 0077',
+    }
+
+    for (const [key, val] of Object.entries(replacements)) {
+      subj = subj.replaceAll(key, val)
+      bod = bod.replaceAll(key, val)
+    }
+
+    setSendSubject(subj)
+    setSendBody(bod)
+  }
+
+  // Fetch email templates and auto-fill when modal opens
+  useEffect(() => {
+    if (!showSendTemplateModal) return
+
+    const shortId = String(order.id).slice(-6).toUpperCase()
+    const fullName = `${order.first_name || ''} ${order.last_name || ''}`.trim() || 'Customer'
+    const fullAddress = [order.address_line1, order.postcode].filter(Boolean).join(', ')
+
+    setSendTo(order.email || '')
+
+    const initTemplates = (templatesList: { id: string; name: string; subject: string; body: string }[]) => {
+      if (templatesList.length > 0) {
+        applyTemplate(templatesList[0])
+      } else {
+        // Fallback default if no template exists
+        setSelectedTemplateId('')
+        setSendSubject(`Update regarding your Application - Order #${shortId}`)
+        setSendBody(`Dear ${order.first_name || 'Customer'},\n\nWe are writing to update you on your application (Reference #${shortId}${fullAddress ? ` for ${fullAddress}` : ''}). Your request is currently being processed by our team.\n\nIf you have any questions or require any assistance, please do not hesitate to contact us.`)
+      }
+    }
+
+    if (emailTemplates.length === 0) {
+      supabase.from('email_templates').select('*').order('name').then(({ data }) => {
+        const list = data || []
+        setEmailTemplates(list)
+        initTemplates(list)
+      })
+    } else {
+      initTemplates(emailTemplates)
+    }
+  }, [showSendTemplateModal])
+
+  function selectEmailTemplate(templateId: string) {
+    const t = emailTemplates.find(et => et.id === templateId)
+    if (t) {
+      applyTemplate(t)
+    }
+  }
+
+  async function handleSendTemplateEmail() {
+    if (!sendTo.trim()) { toast.error('Please enter a recipient email'); return }
+    if (!sendSubject.trim()) { toast.error('Please enter a subject'); return }
+    if (!sendBody.trim()) { toast.error('Please enter a message body'); return }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(sendTo.trim())) { toast.error('Invalid email address'); return }
+
+    setIsSendingEmail(true)
+    try {
+      const res = await fetch('/api/email/send-template', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: sendTo.trim(), subject: sendSubject.trim(), body: sendBody.trim(), orderId: order.id }),
+      })
+      const result = await res.json()
+      if (!res.ok) {
+        toast.error(result.error || 'Failed to send email')
+      } else {
+        toast.success(`Email sent to ${sendTo}`)
+        await addTimelineNote(`Template email sent to ${sendTo} — Subject: ${sendSubject}`, 'Email Sent')
+        setShowSendTemplateModal(false)
+      }
+    } catch { toast.error('Network error') }
+    finally { setIsSendingEmail(false) }
+  }
 
   async function savePaymentVerifiedBy() {
     const newReqs = { ...submissionReqs, payment_verified_by: paymentVerifiedBy }
@@ -1608,6 +1716,13 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                     No Answer / Non-UK Phone Number
                   </button>
                 )}
+                <button
+                  onClick={() => setShowSendTemplateModal(true)}
+                  className="bg-[#6366f1] hover:bg-[#4f46e5] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors flex items-center gap-2 cursor-pointer"
+                >
+                  <Mail className="h-4 w-4" />
+                  Send Template Email
+                </button>
               </div>
             )}
           </div>
@@ -2253,6 +2368,171 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                   Defer
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Send Template Email Modal */}
+      {showSendTemplateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => !isSendingEmail && setShowSendTemplateModal(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-purple-50">
+              <div className="flex items-center gap-3">
+                <div className="bg-indigo-100 p-2 rounded-xl">
+                  <Send className="h-5 w-5 text-indigo-700" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Send Template Email</h3>
+                  <p className="text-[11px] font-medium text-slate-500">Send an email to {order.first_name} {order.last_name}</p>
+                </div>
+              </div>
+              <button onClick={() => !isSendingEmail && setShowSendTemplateModal(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-5 overflow-y-auto flex-1">
+              {/* Template Selector */}
+              <div>
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-2 block px-1">
+                  Select Template
+                </label>
+                <select
+                  value={selectedTemplateId}
+                  onChange={(e) => selectEmailTemplate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400"
+                >
+                  <option value="">— Choose a template —</option>
+                  {emailTemplates.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Recipient */}
+              <div>
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-2 block px-1">
+                  Recipient Email <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={sendTo}
+                  onChange={(e) => setSendTo(e.target.value)}
+                  placeholder="customer@example.com"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400"
+                />
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-2 block px-1">
+                  Subject
+                </label>
+                <input
+                  type="text"
+                  value={sendSubject}
+                  onChange={(e) => setSendSubject(e.target.value)}
+                  placeholder="Email subject..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400"
+                />
+              </div>
+
+              {/* Body */}
+              <div>
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-2 block px-1">
+                  Message Body
+                </label>
+                <textarea
+                  value={sendBody}
+                  onChange={(e) => setSendBody(e.target.value)}
+                  placeholder="Select a template above or type your message..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-medium text-slate-800 leading-relaxed min-h-[180px] outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 resize-y"
+                />
+              </div>
+
+              {/* Live Professional Email Preview */}
+              <div>
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-2 block px-1 flex items-center justify-between">
+                  <span>Professional Email Preview (What Customer Receives)</span>
+                  <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">Auto-Formatted</span>
+                </label>
+                <div className="bg-slate-100 rounded-xl p-4 border border-slate-200 shadow-inner">
+                  <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+                    {/* Header */}
+                    <div className="bg-[#0b1b3a] p-4 text-white">
+                      <div className="font-bold text-base">{(order.brand as any)?.name || 'Online Land Registry'}</div>
+                      <div className="text-[10px] text-slate-300">Official Land Registry Documentation Services</div>
+                    </div>
+                    {/* Body */}
+                    <div className="p-5 space-y-3 text-xs text-slate-700">
+                      <p className="font-semibold text-slate-900">Dear {order.first_name || 'Customer'},</p>
+                      <div className="whitespace-pre-wrap leading-relaxed">
+                        {sendBody || <span className="italic text-slate-400">Select a template above to generate message...</span>}
+                      </div>
+
+                      {/* Application Reference Card */}
+                      <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-lg text-[11px]">
+                        <div className="font-bold text-slate-700 uppercase tracking-wider text-[9px] mb-1.5">Application Reference Details</div>
+                        <div className="grid grid-cols-2 gap-1.5 font-medium">
+                          <div><span className="text-slate-500">Order Ref:</span> <span className="font-bold font-mono">#{String(order.id).slice(-6).toUpperCase()}</span></div>
+                          {order.title_number && <div><span className="text-slate-500">Title Number:</span> <span className="font-semibold">{order.title_number}</span></div>}
+                          {(order.address_line1 || order.postcode) && (
+                            <div className="col-span-2"><span className="text-slate-500">Property:</span> <span className="font-semibold">{[order.address_line1, order.postcode].filter(Boolean).join(', ')}</span></div>
+                          )}
+                          {order.amount_total && <div><span className="text-slate-500">Amount:</span> <span className="font-semibold">{formatCurrency(order.amount_total)}</span></div>}
+                        </div>
+                      </div>
+
+                      {/* Queries Banner */}
+                      <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 text-[11px]">
+                        <strong>Need Help or Have Queries?</strong><br/>
+                        If you have any questions regarding this email or your application, please feel free to reply directly to this email or call our support line at <strong>0333 577 0077</strong>.
+                      </div>
+
+                      {/* Sign off */}
+                      <div className="mt-4 pt-3 border-t border-slate-100 text-slate-600 text-[11px]">
+                        <div>Kind regards,</div>
+                        <div className="font-bold text-slate-900">Customer Support Team</div>
+                        <div className="text-slate-500 text-[10px]">{(order.brand as any)?.name || 'Online Land Registry'}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Placeholder hint */}
+              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 flex items-start gap-2.5">
+                <Mail className="h-4 w-4 text-indigo-600 mt-0.5 flex-shrink-0" />
+                <p className="text-[11px] font-medium text-indigo-800 leading-relaxed">
+                  Templates support placeholders: <code className="bg-indigo-100 px-1 rounded text-[10px]">{'{{first_name}}'}</code> <code className="bg-indigo-100 px-1 rounded text-[10px]">{'{{last_name}}'}</code> <code className="bg-indigo-100 px-1 rounded text-[10px]">{'{{order_id}}'}</code> <code className="bg-indigo-100 px-1 rounded text-[10px]">{'{{amount}}'}</code> — these are auto-replaced with order data.
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50">
+              <button
+                onClick={() => !isSendingEmail && setShowSendTemplateModal(false)}
+                disabled={isSendingEmail}
+                className="px-5 py-2.5 text-xs font-bold text-slate-600 hover:text-slate-800 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSendTemplateEmail}
+                disabled={isSendingEmail || !sendTo || !sendSubject || !sendBody}
+                className="flex items-center gap-2 px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors shadow-sm shadow-indigo-600/20 disabled:opacity-50"
+              >
+                {isSendingEmail ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</>
+                ) : (
+                  <><Send className="h-4 w-4" /> Send Email</>
+                )}
+              </button>
             </div>
           </div>
         </div>
