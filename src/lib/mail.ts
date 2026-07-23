@@ -9,16 +9,19 @@ interface EmailPayload {
 
 export async function sendEmail({ to, subject, html }: EmailPayload) {
   const resendApiKey = process.env.RESEND_API_KEY
-  const resendFrom = process.env.RESEND_FROM || 'Online Land Registry <sales@onlinelandregistry.uk>'
+  let resendFrom = (process.env.RESEND_FROM || 'Online Land Registry <sales@onlinelandregistry.uk>').trim()
+  // Strip any accidental surrounding quotes from Vercel env settings (e.g. "Name <email@domain.com>")
+  resendFrom = resendFrom.replace(/^["']|["']$/g, '').trim()
 
   const smtpHost = process.env.SMTP_HOST
   const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : 587
   const smtpSecure = process.env.SMTP_SECURE === 'true'
   const smtpUser = process.env.SMTP_USER
   const smtpPass = process.env.SMTP_PASS
-  const smtpFrom = process.env.SMTP_FROM || 'Online Land Registry <noreply@onlinelandregistry.com>'
+  let smtpFrom = (process.env.SMTP_FROM || 'Online Land Registry <noreply@onlinelandregistry.com>').trim()
+  smtpFrom = smtpFrom.replace(/^["']|["']$/g, '').trim()
 
-  console.log(`[EMAIL SENDING] TO: ${to} | SUBJECT: ${subject}`)
+  console.log(`[EMAIL SENDING] TO: ${to} | SUBJECT: ${subject} | FROM: ${resendFrom}`)
   
   // Log in system notifications if the email belongs to an active user
   try {
