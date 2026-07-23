@@ -1579,6 +1579,14 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                 {(status !== 'abandoned' && status !== 'dead') && (
                   <button
                     onClick={() => setOrderStatus('abandoned')}
+                    className="bg-[#f59e0b] hover:bg-[#d97706] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
+                  >
+                    Abandon
+                  </button>
+                )}
+                {status !== 'dead' && (
+                  <button
+                    onClick={() => setOrderStatus('dead')}
                     className="bg-[#dc3545] hover:bg-[#c82333] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
                   >
                     Mark Dead
