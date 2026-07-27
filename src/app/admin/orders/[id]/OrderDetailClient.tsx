@@ -219,29 +219,62 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
       return
     }
 
-    const appDetailsNote = notes.find(n => n.category === 'Application Details' || n.message?.includes('📋 Application Form Details Captured:'))
-    if (appDetailsNote && appDetailsNote.message) {
-      const extracted: Record<string, string> = {}
-      const lines = appDetailsNote.message.split('\n')
+    const extracted: Record<string, string> = {}
+
+    // Find matching application details notes
+    const appNotes = notes.filter(n => 
+      n.category === 'Application Details' || 
+      n.message?.includes('Application Form Details') ||
+      n.message?.includes('•')
+    )
+
+    for (const note of appNotes) {
+      if (!note.message) continue
+      const lines = note.message.split('\n')
       lines.forEach(line => {
         const trimmed = line.trim()
-        if (trimmed.startsWith('•')) {
-          const colonIdx = trimmed.indexOf(':')
-          if (colonIdx > -1) {
-            const key = trimmed.slice(1, colonIdx).trim()
-            const val = trimmed.slice(colonIdx + 1).trim()
-            if (key && val) {
+        let bulletLine = ''
+        if (trimmed.startsWith('•') || trimmed.startsWith('-')) {
+          bulletLine = trimmed.slice(1).trim()
+        } else if (trimmed.includes(':')) {
+          bulletLine = trimmed
+        }
+
+        if (bulletLine && bulletLine.includes(':')) {
+          const colonIdx = bulletLine.indexOf(':')
+          const key = bulletLine.slice(0, colonIdx).trim()
+          const val = bulletLine.slice(colonIdx + 1).trim()
+          if (key && val && !key.startsWith('http') && !key.toLowerCase().includes('status') && !key.toLowerCase().includes('payment')) {
+            if (!extracted[key]) {
               extracted[key] = val
             }
           }
         }
       })
-      if (Object.keys(extracted).length > 0) {
-        setAppFormData(extracted)
-        setAppFieldEntries(Object.entries(extracted).map(([k, v]) => ({ key: k, value: String(v) })))
-      }
     }
-  }, [order.form_data, notes])
+
+    // Fallback: Populate standard order fields if extracted is empty
+    if (Object.keys(extracted).length === 0) {
+      if (order.title || order.first_name || order.last_name) {
+        extracted['Customer Name'] = `${order.title || ''} ${order.first_name || ''} ${order.middle_name || ''} ${order.last_name || ''}`.replace(/\s+/g, ' ').trim()
+      }
+      if (order.email) extracted['Email'] = order.email
+      if (order.phone) extracted['Phone'] = order.phone
+      if (order.address_line1) extracted['Property Address'] = `${order.address_line1 || ''} ${order.address_line2 || ''} ${order.city || ''} ${order.postcode || ''}`.replace(/\s+/g, ' ').trim()
+      if (order.county) extracted['Country'] = order.county
+      if (order.title_number) extracted['Title Number'] = order.title_number
+      if (order.tenure) extracted['Tenure'] = order.tenure
+      if (order.property_value) extracted['Property Value'] = `£${Number(order.property_value).toFixed(2)}`
+      if (order.hmlr_fee) extracted['HMLR Fee'] = `£${Number(order.hmlr_fee).toFixed(2)}`
+      if (order.tenancy_type) extracted['Tenancy Type'] = order.tenancy_type
+      if (typeof order.is_mortgaged === 'boolean') extracted['Is Mortgaged'] = order.is_mortgaged ? 'Yes' : 'No'
+    }
+
+    if (Object.keys(extracted).length > 0) {
+      setAppFormData(extracted)
+      setAppFieldEntries(Object.entries(extracted).map(([k, v]) => ({ key: k, value: String(v) })))
+    }
+  }, [order, notes])
 
   async function handleSaveAppDetails() {
     setSaving(true)
