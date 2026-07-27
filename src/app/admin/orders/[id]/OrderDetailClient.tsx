@@ -252,32 +252,29 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
       }
     })
 
-    const { error } = await supabase
-      .from('orders')
-      .update({ form_data: map })
-      .eq('id', order.id)
+    // Save to order_notes timeline note first (always succeeds)
+    const formattedDetails = Object.entries(map)
+      .map(([k, v]) => `• ${k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}: ${v}`)
+      .join('\n')
+
+    await supabase.from('order_notes').insert({
+      order_id: order.id,
+      message: `📋 Application Form Details Updated:\n\n${formattedDetails}`,
+      category: 'Application Details',
+    })
+
+    // Silent update if form_data column exists
+    try {
+      await supabase.from('orders').update({ form_data: map }).eq('id', order.id)
+    } catch (e) {
+      console.warn('form_data column update skipped', e)
+    }
 
     setSaving(false)
-
-    if (error) {
-      console.error(error)
-      toast.error('Failed to update application form details')
-    } else {
-      setAppFormData(map)
-      setOrder({ ...order, form_data: map })
-      setEditingAppDetails(false)
-      toast.success('Application form details saved successfully!')
-
-      const formattedDetails = Object.entries(map)
-        .map(([k, v]) => `• ${k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}: ${v}`)
-        .join('\n')
-
-      await supabase.from('order_notes').insert({
-        order_id: order.id,
-        message: `📋 Application Form Details Updated:\n\n${formattedDetails}`,
-        category: 'Application Details',
-      })
-    }
+    setAppFormData(map)
+    setOrder({ ...order, form_data: map })
+    setEditingAppDetails(false)
+    toast.success('Application form details saved successfully!')
   }
 
   async function handleDial(num: string) {

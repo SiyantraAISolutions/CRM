@@ -431,8 +431,6 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
   }
 
   async function createOrderInDB() {
-    const { data: { user } } = await supabase.auth.getUser()
-
     let finalTenure = formData.tenure || ''
     if (selectedFormType?.code === 'DEED_SEARCH') {
       const parts: string[] = []
@@ -442,163 +440,88 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
       finalTenure = parts.join(' | ')
     }
 
-    const baseOrderPayload = {
-      brand_id: selectedBrand!.id,
-      form_type_id: selectedFormType!.id,
-      business_id: selectedFormType!.business_id,
-      user_id: user?.id,
-      is_inbound: interactionType ? interactionType.startsWith('inbound') : false,
-      status: 'lead',
-      priority: 'standard',
-      amount_total: grandTotal,
-      terms_accepted: termsAccepted,
-      title: formData.title,
-      first_name: formData.first_name,
-      middle_name: formData.middle_name,
-      last_name: formData.last_name,
-      email: formData.email,
-      phone: formData.phone,
-      address_line1: formData.address_line1,
-      address_line2: formData.address_line2,
-      city: formData.city,
-      county: formData.county,
-      postcode: formData.postcode,
-      title_number: formData.title_number,
-      tenure: finalTenure,
-      property_value: propertyValue ? Number(propertyValue) : null,
-      hmlr_fee: hmlrFee || null,
-      tenancy_type: formData.tenancy_type,
-      is_mortgaged: formData.is_mortgaged === 'yes',
-      form_data: formData,
-    }
+    try {
+      const res = await fetch('/api/orders/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brand_id: selectedBrand!.id,
+          form_type_id: selectedFormType!.id,
+          business_id: selectedFormType!.business_id,
+          interaction_type: interactionType,
+          amount_total: grandTotal,
+          terms_accepted: termsAccepted,
+          title: formData.title,
+          first_name: formData.first_name,
+          middle_name: formData.middle_name,
+          last_name: formData.last_name,
+          email: formData.email,
+          phone: formData.phone,
+          address_line1: formData.address_line1,
+          address_line2: formData.address_line2,
+          city: formData.city,
+          county: formData.county,
+          postcode: formData.postcode,
+          title_number: formData.title_number,
+          tenure: finalTenure,
+          property_value: propertyValue,
+          hmlr_fee: hmlrFee,
+          tenancy_type: formData.tenancy_type,
+          is_mortgaged: formData.is_mortgaged === 'yes',
+          form_data: formData,
+          order_items: orderItems,
+          creation_notes: creationNotes,
+          draft_id: draftId,
+        }),
+      })
 
-    let { data: newOrder, error } = await supabase
-      .from('orders')
-      .insert(baseOrderPayload)
-      .select()
-      .single()
+      const data = await res.json()
+      if (!res.ok || !data.order) {
+        throw new Error(data.error || 'Failed to create order')
+      }
 
-    if (error) {
-      // Fallback if form_data column does not exist on orders table
-      const { form_data: _, ...fallbackPayload } = baseOrderPayload
-      const fallbackResult = await supabase
-        .from('orders')
-        .insert(fallbackPayload)
-        .select()
-        .single()
+      const newOrder = data.order
 
-      newOrder = fallbackResult.data
-      error = fallbackResult.error
-    }
+      // Upload file if present
+      if (selectedFile) {
+        try {
+          const fileExt = selectedFile.name.split('.').pop()
+          const filePath = `${newOrder.id}/${Math.random().toString(36).substring(2)}.${fileExt}`
+          
+          const { error: uploadError } = await supabase.storage
+            .from('order-documents')
+            .upload(filePath, selectedFile)
 
-    if (error || !newOrder) {
-      toast.error('Failed to create order')
-      return null
-    }
-
-    const lineItems = orderItems.map(item => ({
-      order_id: newOrder.id,
-      item_type: item.item_type,
-      amount: Number(item.amount)
-    }))
-    await supabase.from('order_items').insert(lineItems)
-
-    if (selectedFile) {
-      try {
-        const fileExt = selectedFile.name.split('.').pop()
-        const filePath = `${newOrder.id}/${Math.random().toString(36).substring(2)}.${fileExt}`
-        
-        const { error: uploadError } = await supabase.storage
-          .from('order-documents')
-          .upload(filePath, selectedFile)
-
-        if (uploadError) {
-          toast.error('Failed to upload file to storage, but order was created')
-          console.error(uploadError)
-        } else {
-          const newReqs = { docs_uploaded: true, id_verified: false, form_signed: false }
-          const { error: updateError } = await supabase
-            .from('orders')
-            .update({
-              document_url: filePath,
-              submission_requirements: newReqs,
-              status: 'Documents Uploaded'
-            })
-            .eq('id', newOrder.id)
-
-          if (updateError) {
-            console.error(updateError)
+          if (uploadError) {
+            toast.error('Failed to upload file to storage, but order was created')
+            console.error(uploadError)
           } else {
+            const newReqs = { docs_uploaded: true, id_verified: false, form_signed: false }
+            await supabase
+              .from('orders')
+              .update({
+                document_url: filePath,
+                submission_requirements: newReqs,
+                status: 'Documents Uploaded'
+              })
+              .eq('id', newOrder.id)
+
             newOrder.document_url = filePath
             newOrder.submission_requirements = newReqs
             newOrder.status = 'Documents Uploaded'
-            
-            await supabase.from('order_notes').insert({
-              order_id: newOrder.id,
-              user_id: user?.id,
-              message: `Uploaded document during creation: ${selectedFile.name} (marked "Supporting Docs Uploaded" as Complete)`,
-              category: 'Document Uploaded',
-            })
           }
+        } catch (uploadErr) {
+          console.error(uploadErr)
+          toast.error('An error occurred during file upload')
         }
-      } catch (uploadErr) {
-        console.error(uploadErr)
-        toast.error('An error occurred during file upload')
       }
+
+      return newOrder
+    } catch (err: any) {
+      console.error('createOrderInDB error:', err)
+      toast.error(err.message || 'Failed to create order')
+      return null
     }
-
-    let interactionLabel = 'inbound call'
-    if (interactionType === 'outbound') interactionLabel = 'outbound call'
-    else if (interactionType === 'inbound_bing') interactionLabel = 'inbound bing call'
-    else if (interactionType === 'inbound_google') interactionLabel = 'inbound google call'
-    else if (interactionType === 'help_request') interactionLabel = 'help request'
-    else if (interactionType === 'enquiry') interactionLabel = 'enquiry'
-    else if (interactionType === 'appointment') interactionLabel = 'appointment'
-
-    await supabase.from('order_notes').insert({
-      order_id: newOrder.id,
-      user_id: user?.id,
-      message: `Order created via ${interactionLabel}`,
-      category: 'Order Created',
-    })
-
-    // Save formatted application details into timeline notes so they are always visible
-    if (formData && Object.keys(formData).length > 0) {
-      const formattedDetails = Object.entries(formData)
-        .filter(([_, val]) => val !== undefined && val !== null && String(val).trim() !== '')
-        .map(([key, val]) => {
-          const label = key
-            .replace(/_/g, ' ')
-            .replace(/\b\w/g, c => c.toUpperCase())
-          return `• ${label}: ${val}`
-        })
-        .join('\n')
-
-      if (formattedDetails) {
-        await supabase.from('order_notes').insert({
-          order_id: newOrder.id,
-          user_id: user?.id,
-          message: `📋 Application Form Details Captured:\n\n${formattedDetails}`,
-          category: 'Application Details',
-        })
-      }
-    }
-
-    if (creationNotes.trim()) {
-      await supabase.from('order_notes').insert({
-        order_id: newOrder.id,
-        user_id: user?.id,
-        message: creationNotes,
-        category: 'Creation Note',
-      })
-    }
-
-    // Delete order draft if it exists
-    if (draftId) {
-      await supabase.from('work_drafts').delete().eq('id', draftId)
-    }
-
-    return newOrder
   }
 
   // ─── Send Payment Link Flow ─────────────────────────────
