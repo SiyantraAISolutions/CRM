@@ -205,6 +205,81 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   const [notes, setNotes] = useState<OrderNote[]>((order.notes as OrderNote[]) ?? [])
   const [dialing, setDialing] = useState(false)
 
+  const [appFormData, setAppFormData] = useState<Record<string, string>>({})
+  const [editingAppDetails, setEditingAppDetails] = useState(false)
+  const [appFieldEntries, setAppFieldEntries] = useState<{ key: string; value: string }[]>([])
+  const [newKey, setNewKey] = useState('')
+  const [newVal, setNewVal] = useState('')
+
+  useEffect(() => {
+    if (order.form_data && typeof order.form_data === 'object' && Object.keys(order.form_data).length > 0) {
+      setAppFormData(order.form_data as Record<string, string>)
+      const entries = Object.entries(order.form_data as Record<string, string>).map(([k, v]) => ({ key: k, value: String(v) }))
+      setAppFieldEntries(entries)
+      return
+    }
+
+    const appDetailsNote = notes.find(n => n.category === 'Application Details' || n.message?.includes('📋 Application Form Details Captured:'))
+    if (appDetailsNote && appDetailsNote.message) {
+      const extracted: Record<string, string> = {}
+      const lines = appDetailsNote.message.split('\n')
+      lines.forEach(line => {
+        const trimmed = line.trim()
+        if (trimmed.startsWith('•')) {
+          const colonIdx = trimmed.indexOf(':')
+          if (colonIdx > -1) {
+            const key = trimmed.slice(1, colonIdx).trim()
+            const val = trimmed.slice(colonIdx + 1).trim()
+            if (key && val) {
+              extracted[key] = val
+            }
+          }
+        }
+      })
+      if (Object.keys(extracted).length > 0) {
+        setAppFormData(extracted)
+        setAppFieldEntries(Object.entries(extracted).map(([k, v]) => ({ key: k, value: String(v) })))
+      }
+    }
+  }, [order.form_data, notes])
+
+  async function handleSaveAppDetails() {
+    setSaving(true)
+    const map: Record<string, string> = {}
+    appFieldEntries.forEach(entry => {
+      if (entry.key.trim()) {
+        map[entry.key.trim()] = entry.value.trim()
+      }
+    })
+
+    const { error } = await supabase
+      .from('orders')
+      .update({ form_data: map })
+      .eq('id', order.id)
+
+    setSaving(false)
+
+    if (error) {
+      console.error(error)
+      toast.error('Failed to update application form details')
+    } else {
+      setAppFormData(map)
+      setOrder({ ...order, form_data: map })
+      setEditingAppDetails(false)
+      toast.success('Application form details saved successfully!')
+
+      const formattedDetails = Object.entries(map)
+        .map(([k, v]) => `• ${k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}: ${v}`)
+        .join('\n')
+
+      await supabase.from('order_notes').insert({
+        order_id: order.id,
+        message: `📋 Application Form Details Updated:\n\n${formattedDetails}`,
+        category: 'Application Details',
+      })
+    }
+  }
+
   async function handleDial(num: string) {
     if (!num || num === '—') return
     setDialing(true)
@@ -1299,44 +1374,177 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
             )}
 
             {!editingInfo ? (
-              <table className="w-full text-left border-collapse text-[15px]">
-                <tbody>
-                  {[
-                    { label: 'No of properties', value: '1' },
-                    { label: 'Properties', value: '0' },
-                    { label: 'Property address', value: `${order.address_line1 || ''} ${order.address_line2 || ''} ${order.city || ''} ${order.postcode || ''}`.trim() || '—' },
-                    { label: 'Country', value: order.county || 'England' },
-                    { label: 'Title number', value: order.title_number || '—' },
-                    { label: 'Tenure', value: order.tenure || '—' },
-                    { label: 'Title', value: order.title || '—' },
-                    { label: 'First name', value: order.first_name || '—' },
-                    { label: 'Middle name', value: order.middle_name || '—' },
-                    { label: 'Surname', value: order.last_name || '—' },
-                    { label: 'Email', value: order.email || '—' },
-                    { label: 'Phone', value: order.phone || '—' },
-                    { label: 'Property Value', value: order.property_value || '—' },
-                    { label: 'HMLR Fee', value: order.hmlr_fee || '—' },
-                  ].map((row, idx) => (
-                    <tr key={idx} className={idx % 2 === 0 ? "bg-[#f8f9fa]" : "bg-white"}>
-                      <td className="py-4 px-5 font-semibold text-slate-700 w-[250px] align-top">{row.label}</td>
-                      <td className="py-4 px-5 text-slate-700 align-top break-words flex items-center gap-2">
-                        <span>{row.value}</span>
-                        {row.label === 'Phone' && row.value && row.value !== '—' && (
+              <>
+                <table className="w-full text-left border-collapse text-[15px]">
+                  <tbody>
+                    {[
+                      { label: 'No of properties', value: '1' },
+                      { label: 'Properties', value: '0' },
+                      { label: 'Property address', value: `${order.address_line1 || ''} ${order.address_line2 || ''} ${order.city || ''} ${order.postcode || ''}`.trim() || '—' },
+                      { label: 'Country', value: order.county || 'England' },
+                      { label: 'Title number', value: order.title_number || '—' },
+                      { label: 'Tenure', value: order.tenure || '—' },
+                      { label: 'Title', value: order.title || '—' },
+                      { label: 'First name', value: order.first_name || '—' },
+                      { label: 'Middle name', value: order.middle_name || '—' },
+                      { label: 'Surname', value: order.last_name || '—' },
+                      { label: 'Email', value: order.email || '—' },
+                      { label: 'Phone', value: order.phone || '—' },
+                      { label: 'Property Value', value: order.property_value || '—' },
+                      { label: 'HMLR Fee', value: order.hmlr_fee || '—' },
+                    ].map((row, idx) => (
+                      <tr key={idx} className={idx % 2 === 0 ? "bg-[#f8f9fa]" : "bg-white"}>
+                        <td className="py-4 px-5 font-semibold text-slate-700 w-[250px] align-top">{row.label}</td>
+                        <td className="py-4 px-5 text-slate-700 align-top break-words flex items-center gap-2">
+                          <span>{row.value}</span>
+                          {row.label === 'Phone' && row.value && row.value !== '—' && (
+                            <button
+                              onClick={() => handleDial(String(row.value))}
+                              disabled={dialing}
+                              title="Call via Sipgate"
+                              className="p-1 rounded text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50 transition-colors"
+                            >
+                              <Phone className="h-4 w-4" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <div className="mt-10 pt-6 border-t border-slate-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-[16px] font-bold text-[#0B1B3A] flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#0B1B3A]"></span>
+                      Service Application Form Details
+                    </h3>
+                    {isAdminOrDirector && (
+                      <button
+                        type="button"
+                        onClick={() => setEditingAppDetails(!editingAppDetails)}
+                        className="text-xs font-semibold px-3 py-1.5 rounded border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        {editingAppDetails ? 'Cancel Editing' : appFieldEntries.length > 0 ? 'Edit Application Details' : '+ Add Application Details'}
+                      </button>
+                    )}
+                  </div>
+
+                  {editingAppDetails ? (
+                    <div className="bg-[#f8f9fa] p-5 rounded-lg border border-slate-200 space-y-4">
+                      <p className="text-xs text-slate-500">Edit existing application details or add new field pairs below:</p>
+
+                      {appFieldEntries.map((entry, idx) => (
+                        <div key={idx} className="flex items-center gap-3">
+                          <input
+                            type="text"
+                            placeholder="Field Label (e.g. Deceased Name)"
+                            value={entry.key}
+                            onChange={e => {
+                              const next = [...appFieldEntries]
+                              next[idx].key = e.target.value
+                              setAppFieldEntries(next)
+                            }}
+                            className="w-1/3 h-10 px-3 border border-slate-300 rounded text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#0B1B3A]"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Field Value"
+                            value={entry.value}
+                            onChange={e => {
+                              const next = [...appFieldEntries]
+                              next[idx].value = e.target.value
+                              setAppFieldEntries(next)
+                            }}
+                            className="flex-1 h-10 px-3 border border-slate-300 rounded text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#0B1B3A]"
+                          />
                           <button
-                            onClick={() => handleDial(String(row.value))}
-                            disabled={dialing}
-                            title="Call via Sipgate"
-                            className="p-1 rounded text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50 transition-colors"
+                            type="button"
+                            onClick={() => {
+                              setAppFieldEntries(appFieldEntries.filter((_, i) => i !== idx))
+                            }}
+                            className="p-2 text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                            title="Remove Field"
                           >
-                            <Phone className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4" />
                           </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
+                        </div>
+                      ))}
+
+                      {/* Add field row */}
+                      <div className="flex items-center gap-3 pt-2 border-t border-slate-200">
+                        <input
+                          type="text"
+                          placeholder="New Field Label (e.g. Reason for Change)"
+                          value={newKey}
+                          onChange={e => setNewKey(e.target.value)}
+                          className="w-1/3 h-10 px-3 border border-slate-300 rounded text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#0B1B3A]"
+                        />
+                        <input
+                          type="text"
+                          placeholder="New Value"
+                          value={newVal}
+                          onChange={e => setNewVal(e.target.value)}
+                          className="flex-1 h-10 px-3 border border-slate-300 rounded text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#0B1B3A]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!newKey.trim()) { toast.error('Field Label is required'); return }
+                            setAppFieldEntries([...appFieldEntries, { key: newKey.trim(), value: newVal.trim() }])
+                            setNewKey('')
+                            setNewVal('')
+                          }}
+                          className="bg-[#0B1B3A] text-white text-xs font-semibold px-4 h-10 rounded hover:bg-[#132c57] transition-colors whitespace-nowrap"
+                        >
+                          + Add Field
+                        </button>
+                      </div>
+
+                      <div className="pt-4 flex gap-3">
+                        <button
+                          type="button"
+                          onClick={handleSaveAppDetails}
+                          disabled={saving}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-6 py-2 rounded shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
+                        >
+                          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                          Save Application Details
+                        </button>
+                      </div>
+                    </div>
+                  ) : appFieldEntries.length > 0 ? (
+                    <table className="w-full text-left border-collapse text-[15px] shadow-sm rounded-lg overflow-hidden border border-slate-200">
+                      <tbody>
+                        {appFieldEntries.map((row, idx) => {
+                          const displayLabel = row.key
+                            .replace(/_/g, ' ')
+                            .replace(/\b\w/g, c => c.toUpperCase())
+                          return (
+                            <tr key={idx} className={idx % 2 === 0 ? "bg-[#f8f9fa]" : "bg-white"}>
+                              <td className="py-3.5 px-5 font-semibold text-slate-700 w-[250px] align-top">{displayLabel}</td>
+                              <td className="py-3.5 px-5 text-slate-800 align-top break-words">{String(row.value)}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="p-6 bg-slate-50 border border-slate-200 rounded-lg text-center">
+                      <p className="text-sm text-slate-500 font-medium mb-3">No custom service application details recorded for this order yet.</p>
+                      {isAdminOrDirector && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingAppDetails(true)}
+                          className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-xs font-semibold px-4 py-2 rounded transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          + Add Application Details
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>) : (
               <div className="grid grid-cols-2 gap-6 max-w-4xl">
                 <div>
                   <label className="block text-[14px] text-slate-600 mb-1">First Name</label>

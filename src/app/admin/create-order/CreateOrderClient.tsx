@@ -442,7 +442,7 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
       finalTenure = parts.join(' | ')
     }
 
-    const orderPayload = {
+    const baseOrderPayload = {
       brand_id: selectedBrand!.id,
       form_type_id: selectedFormType!.id,
       business_id: selectedFormType!.business_id,
@@ -469,13 +469,27 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
       hmlr_fee: hmlrFee || null,
       tenancy_type: formData.tenancy_type,
       is_mortgaged: formData.is_mortgaged === 'yes',
+      form_data: formData,
     }
 
-    const { data: newOrder, error } = await supabase
+    let { data: newOrder, error } = await supabase
       .from('orders')
-      .insert(orderPayload)
+      .insert(baseOrderPayload)
       .select()
       .single()
+
+    if (error) {
+      // Fallback if form_data column does not exist on orders table
+      const { form_data: _, ...fallbackPayload } = baseOrderPayload
+      const fallbackResult = await supabase
+        .from('orders')
+        .insert(fallbackPayload)
+        .select()
+        .single()
+
+      newOrder = fallbackResult.data
+      error = fallbackResult.error
+    }
 
     if (error || !newOrder) {
       toast.error('Failed to create order')
@@ -547,6 +561,28 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
       message: `Order created via ${interactionLabel}`,
       category: 'Order Created',
     })
+
+    // Save formatted application details into timeline notes so they are always visible
+    if (formData && Object.keys(formData).length > 0) {
+      const formattedDetails = Object.entries(formData)
+        .filter(([_, val]) => val !== undefined && val !== null && String(val).trim() !== '')
+        .map(([key, val]) => {
+          const label = key
+            .replace(/_/g, ' ')
+            .replace(/\b\w/g, c => c.toUpperCase())
+          return `• ${label}: ${val}`
+        })
+        .join('\n')
+
+      if (formattedDetails) {
+        await supabase.from('order_notes').insert({
+          order_id: newOrder.id,
+          user_id: user?.id,
+          message: `📋 Application Form Details Captured:\n\n${formattedDetails}`,
+          category: 'Application Details',
+        })
+      }
+    }
 
     if (creationNotes.trim()) {
       await supabase.from('order_notes').insert({
