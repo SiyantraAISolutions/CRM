@@ -143,7 +143,7 @@ export default function OrdersClient({ brands, formTypes }: Props) {
     {
       key: 'manual_payment',
       label: 'Manual Payment',
-      render: (v) => v ? <Badge label="Manual" variant="orange" /> : null,
+      render: (v) => v ? <Badge label="Yes" variant="blue" /> : <Badge label="No" variant="gray" />,
     },
     {
       key: 'priority',
@@ -204,6 +204,8 @@ export default function OrdersClient({ brands, formTypes }: Props) {
         onSearch={(s) => { setSearch(s); setPage(1) }}
         onSort={(k, d) => { setSortKey(k); setSortDir(d); setPage(1) }}
         loading={loading}
+        defaultSortKey="created_at"
+        defaultSortDir="desc"
       />
     </div>
   )

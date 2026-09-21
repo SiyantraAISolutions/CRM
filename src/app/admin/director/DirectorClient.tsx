@@ -436,7 +436,7 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
       </div>
 
       {/* Charts grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 gap-8">
         {/* Revenue by Business (Custom HTML Bar Graph) */}
         <div className="bg-white rounded-2xl border border-purple-100 shadow-sm p-6 flex flex-col">
           <h3 className="text-sm font-bold text-slate-900 tracking-tight mb-6">Revenue by Business</h3>
@@ -460,50 +460,6 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
                 </div>
               )
             })}
-          </div>
-        </div>
-
-        {/* Orders by Status (Segmented Progress Bar) */}
-        <div className="bg-white rounded-2xl border border-purple-100 shadow-sm p-6">
-          <h3 className="text-sm font-bold text-slate-900 tracking-tight mb-6">Orders by Status</h3>
-          <div className="h-[240px] flex flex-col justify-center">
-            {/* The Stacked Bar */}
-            <div className="h-6 w-full flex rounded-full overflow-hidden shadow-inner mb-8 bg-slate-100">
-              {ordersByStatus.map((entry, i) => {
-                const total = Math.max(ordersByStatus.reduce((sum, item) => sum + item.value, 0), 1)
-                const pct = (entry.value / total) * 100
-                if (pct === 0) return null
-                return (
-                  <div 
-                    key={i} 
-                    className="h-full transition-all hover:opacity-90 cursor-default"
-                    style={{ 
-                      width: `${pct}%`, 
-                      backgroundColor: STATUS_COLORS[entry.name.replace(' ', '_')] ?? CHART_COLORS[i % CHART_COLORS.length] 
-                    }}
-                    title={`${entry.name}: ${entry.value} (${Math.round(pct)}%)`}
-                  />
-                )
-              })}
-            </div>
-
-            {/* Elegant Legend */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-4 gap-x-2">
-              {ordersByStatus.map((entry, i) => {
-                const total = Math.max(ordersByStatus.reduce((sum, item) => sum + item.value, 0), 1)
-                const pct = Math.round((entry.value / total) * 100)
-                const color = STATUS_COLORS[entry.name.replace(' ', '_')] ?? CHART_COLORS[i % CHART_COLORS.length]
-                return (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-sm shadow-sm flex-shrink-0" style={{ backgroundColor: color }} />
-                    <div className="min-w-0">
-                      <div className="text-[11px] font-bold text-slate-700 capitalize truncate leading-tight">{entry.name}</div>
-                      <div className="text-[10px] font-semibold text-slate-500">{entry.value} ({pct}%)</div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
           </div>
         </div>
       </div>

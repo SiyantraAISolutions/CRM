@@ -25,6 +25,8 @@ interface DataTableProps<T> {
   onSort?: (key: string, dir: 'asc' | 'desc') => void
   loading?: boolean
   emptyMessage?: string
+  defaultSortKey?: string
+  defaultSortDir?: 'asc' | 'desc'
 }
 
 export default function DataTable<T extends Record<string, unknown>>({
@@ -40,10 +42,12 @@ export default function DataTable<T extends Record<string, unknown>>({
   onSort,
   loading,
   emptyMessage = 'No records found',
+  defaultSortKey,
+  defaultSortDir = 'asc',
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('')
-  const [sortKey, setSortKey] = useState<string | null>(null)
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [sortKey, setSortKey] = useState<string | null>(defaultSortKey || null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(defaultSortDir)
   const [localPage, setLocalPage] = useState(1)
   const [localPageSize, setLocalPageSize] = useState(pageSize)
 

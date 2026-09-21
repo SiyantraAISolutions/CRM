@@ -35,7 +35,7 @@ export default function ProcessClient({ formTypes }: Props) {
     const { data, error } = await supabase
       .from('orders')
       .select('*, user:users!orders_user_id_fkey(id, full_name, email)')
-      .or('status.in.(paid,processing,in_progress,completed),deferred_until.not.is.null')
+      .or('status.in.(paid,processing,in_progress,completed),deferred_until.not.is.null,priority.eq.fast_track')
       .order('created_at', { ascending: false })
       .limit(300)
 
@@ -145,7 +145,7 @@ export default function ProcessClient({ formTypes }: Props) {
   const isDeferred = (o: any) => o.deferred_until && new Date(o.deferred_until).getTime() > new Date().getTime()
   const reviewDue = (o: any) => o.deferred_until && new Date(o.deferred_until).getTime() <= new Date().getTime()
 
-  const inProcess = filteredOrders.filter(o => o.status === 'paid' && !isDeferred(o))
+  const inProcess = filteredOrders.filter(o => (o.status === 'paid' || (o.priority === 'fast_track' && o.status === 'lead')) && !isDeferred(o))
   const inProgress = filteredOrders.filter(o => (o.status === 'processing' || o.status === 'in_progress') && !isDeferred(o))
   const deferred = filteredOrders.filter(o => isDeferred(o) && o.status !== 'completed')
   const completed = filteredOrders.filter(o => o.status === 'completed')

@@ -832,8 +832,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   const tabs: { id: Tab; label: string; count?: number; isHighlighted?: boolean }[] = [
     { id: 'breakdown', label: 'Breakdown' },
     { id: 'information', label: 'Information' },
-    { id: 'notes', label: 'Notes', count: manualNotes.length },
-    { id: 'history', label: 'Application History', count: historyLogs.length },
+    { id: 'notes', label: 'Notes', count: notes.length },
     { id: 'process', label: 'Process' },
   ]
 
@@ -1913,7 +1912,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
             {/* Status Actions */}
             {isAdminOrDirector && (
               <div className="flex flex-wrap items-center gap-3 mt-16">
-                {status !== 'paid' && !showPaymentForm && (
+                {(status !== 'paid' && status !== 'processing') && !showPaymentForm && (
                   <button
                     onClick={startTakePayment}
                     className="bg-[#28a745] hover:bg-[#218838] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors flex items-center gap-2 cursor-pointer"
@@ -1922,7 +1921,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                     Take Payment
                   </button>
                 )}
-                {(status !== 'abandoned' && status !== 'dead') && (
+                {(status !== 'abandoned' && status !== 'dead' && status !== 'paid' && status !== 'processing') && (
                   <button
                     onClick={() => setOrderStatus('abandoned')}
                     className="bg-[#f59e0b] hover:bg-[#d97706] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
@@ -1930,7 +1929,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                     Abandon
                   </button>
                 )}
-                {status !== 'dead' && (
+                {(status !== 'dead' && status !== 'paid' && status !== 'processing') && (
                   <button
                     onClick={() => setOrderStatus('dead')}
                     className="bg-[#dc3545] hover:bg-[#c82333] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
@@ -1946,7 +1945,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                     Restore Application
                   </button>
                 )}
-                {status !== 'paid' && currentRole !== 'admin' && (
+                {(status !== 'paid' && status !== 'processing' && currentRole !== 'admin') && (
                   <button
                     onClick={() => setOrderStatus('no_answer')}
                     className="bg-[#ffc107] hover:bg-[#e0a800] text-[#212529] text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
@@ -1990,11 +1989,11 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
 
             {/* Notes List */}
             <div className="space-y-6">
-              {manualNotes.map((note) => (
+              {notes.map((note) => (
                 <div key={note.id} className="border border-slate-200 bg-white text-[15px] rounded-md overflow-hidden">
                   {note.user?.full_name && (
-                    <div className="px-5 py-3.5 border-b border-slate-100 text-slate-700 bg-white">
-                      {note.user.full_name}
+                    <div className="px-5 py-3.5 border-b border-slate-100 text-slate-700 bg-white font-medium">
+                      {note.user.full_name} {note.category && note.category !== 'Manual Note' ? <span className="text-slate-400 font-normal ml-2">({note.category})</span> : ''}
                     </div>
                   )}
                   <div className="px-5 py-5 text-slate-700 whitespace-pre-wrap bg-white">
@@ -2005,41 +2004,11 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                   </div>
                 </div>
               ))}
-              {manualNotes.length === 0 && (
+              {notes.length === 0 && (
                 <div className="p-8 text-center text-slate-500 border border-slate-200 bg-[#f8f9fa] rounded-md">
                   No notes yet.
                 </div>
               )}
-            </div>
-          </div>
-        )}
-
-        {/* HISTORY TAB */}
-        {activeTab === 'history' && (
-          <div className="p-10 w-full bg-[#f8f9fa] min-h-full">
-            <div className="max-w-4xl">
-              <div className="space-y-6">
-                {historyLogs.map((log) => (
-                  <div key={log.id} className="border border-slate-200 bg-white text-[15px] rounded-md overflow-hidden">
-                    {log.user?.full_name && (
-                      <div className="px-5 py-3.5 border-b border-slate-100 text-slate-700 bg-white font-medium">
-                        {log.user.full_name} {log.category ? <span className="text-slate-400 font-normal ml-2">({log.category})</span> : ''}
-                      </div>
-                    )}
-                    <div className="px-5 py-5 text-slate-700 whitespace-pre-wrap bg-white">
-                      {log.message}
-                    </div>
-                    <div className="px-5 py-3.5 bg-[#f8f9fa] text-slate-500 text-[14px] border-t border-slate-100">
-                      {formatDate(log.created_at)}
-                    </div>
-                  </div>
-                ))}
-                {historyLogs.length === 0 && (
-                  <div className="p-8 text-center text-slate-500 border border-slate-200 bg-[#f8f9fa] rounded-md">
-                    No history logs yet.
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         )}
@@ -2197,7 +2166,6 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
               )}
             </div>
           </div>
-        )}
 
         {/* Order Attachments Section */}
         <div className="mx-10 my-8 border-t border-slate-200 pt-8 max-w-4xl">
@@ -2283,6 +2251,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
             )}
           </div>
         </div>
+        )}
 
         {/* Submit Paper Upload Modal */}
         {showUploadModal && (

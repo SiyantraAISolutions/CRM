@@ -115,7 +115,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
         const [{ data: sData, error: sError }, { data: tData, error: tError }, { data: oData, error: oError }] = await Promise.all([
           supabase.from('form_types').select('id, name, code').order('name'),
           supabase.from('email_templates').select('id, name').order('name'),
-          supabase.from('orders').select('form_type_id').neq('status', 'abandoned').neq('status', 'dead')
+          supabase.from('orders').select('form_type_id').in('status', ['lead', 'paid'])
         ])
 
         // Only log errors if they're not auth-related
@@ -187,7 +187,6 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
   const navItems: NavItem[] = [
     { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
     { label: 'Live Overview of Applications', href: '/admin/process', icon: Layers },
-    { label: 'Process Monitor', href: '/admin/monitor', icon: Activity },
     { label: 'Tickets', href: '/admin/tickets', icon: Ticket, badge: counts.tickets },
     { label: 'Orders', href: '/admin/orders', icon: ShoppingCart },
     { label: 'Conveyancing Call enquiry', href: '/admin/enquiries', icon: MessageSquare },
