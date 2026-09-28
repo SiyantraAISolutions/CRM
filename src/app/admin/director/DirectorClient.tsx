@@ -104,7 +104,7 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
   const staffRevenueByService = useMemo(() => {
     const list: { id: string; agentName: string; serviceName: string; revenue: number }[] = []
     salesTeam.forEach(agent => {
-      const agentOrders = orders.filter(o => o.user_id === agent.id && (o.status === 'paid' || o.status === 'processing'))
+      const agentOrders = orders.filter(o => (o.user_id === agent.id || o.completed_by === agent.id) && ['paid', 'cleared', 'processing', 'completed'].includes(o.status))
       const serviceMap: Record<string, number> = {}
       agentOrders.forEach(o => {
         const formTypeObj = Array.isArray(o.form_type) ? o.form_type[0] : o.form_type
@@ -134,8 +134,8 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
   // Individual agent performance
   const agentPerformance = useMemo(() => {
     return salesTeam.map(member => {
-      const memberOrders = orders.filter(o => o.user_id === member.id)
-      const paidOrders = memberOrders.filter(o => o.status === 'paid' || o.status === 'processing')
+      const memberOrders = orders.filter(o => o.user_id === member.id || o.completed_by === member.id)
+      const paidOrders = memberOrders.filter(o => ['paid', 'cleared', 'processing', 'completed'].includes(o.status))
       const totalSales = paidOrders.reduce((s, o) => s + Number(o.amount_total), 0)
       const memberEnquiries = enquiries.filter(e => e.assigned_to === member.id)
       const wonEnquiries = memberEnquiries.filter(e => e.pipeline_stage === 'won').length
@@ -220,12 +220,12 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
       }
     })
 
-    const agentOrders = orders.filter(o => o.user_id === agent.id)
+    const agentOrders = orders.filter(o => o.user_id === agent.id || o.completed_by === agent.id)
     const agentTasks = tasks.filter(t => t.assigned_to === agent.id)
 
     const revenueByService: Record<string, number> = {}
     agentOrders.forEach(o => {
-      if (o.status === 'paid' || o.status === 'processing') {
+      if (['paid', 'cleared', 'processing', 'completed'].includes(o.status)) {
         const formTypeObj = Array.isArray(o.form_type) ? o.form_type[0] : o.form_type
         const serviceName = formTypeObj?.name || 'Unknown Service'
         revenueByService[serviceName] = (revenueByService[serviceName] || 0) + Number(o.amount_total)
@@ -252,7 +252,7 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
   // Summary stats
   const totalRevenue = payments.filter(p => p.status === 'cleared').reduce((s, p) => s + Number(p.amount), 0)
   const totalOrders = orders.length
-  const paidOrders = orders.filter(o => o.status === 'paid').length
+  const paidOrders = orders.filter(o => ['paid', 'cleared', 'processing', 'completed'].includes(o.status)).length
   const conversionRate = totalOrders > 0 ? Math.round((paidOrders / totalOrders) * 100) : 0
   const wonEnquiries = enquiries.filter(e => e.pipeline_stage === 'won').length
   const openTasksCount = tasks.filter(t => t.status !== 'done').length
