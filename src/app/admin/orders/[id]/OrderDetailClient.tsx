@@ -2166,6 +2166,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
               )}
             </div>
           </div>
+        )}
 
         {/* Order Attachments Section */}
         <div className="mx-10 my-8 border-t border-slate-200 pt-8 max-w-4xl">
@@ -2251,7 +2252,6 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
             )}
           </div>
         </div>
-        )}
 
         {/* Submit Paper Upload Modal */}
         {showUploadModal && (
