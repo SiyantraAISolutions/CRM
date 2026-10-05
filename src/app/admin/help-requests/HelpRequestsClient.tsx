@@ -45,8 +45,7 @@ export default function HelpRequestsClient({ brands, userRole = 'sales' }: { bra
     }
 
     if (activeBusinessId !== 'all') {
-      // Map global activeBusinessId to brand_id since help_requests uses brand_id
-      q = q.eq('brand_id', activeBusinessId)
+      q = q.eq('business_id', activeBusinessId)
     }
     if (brandFilter !== 'all') q = q.eq('brand_id', brandFilter)
     if (search) q = q.or(`customer_name.ilike.%${search}%,customer_email.ilike.%${search}%,subject.ilike.%${search}%`)
