@@ -93,6 +93,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Database error' }, { status: 500, headers: corsHeaders })
     }
 
+    // Send auto-responder email
+    try {
+      const isSales = subject === 'Sales Enquiry'
+      const autoResponderSubject = isSales 
+        ? `We have received your enquiry` 
+        : `Request Received: ${subject || 'Contact Form'}`
+
+      const { sendEmail } = await import('@/lib/mail')
+      const { generateProfessionalEmailHtml } = await import('@/lib/email-templates')
+
+      const emailHtml = generateProfessionalEmailHtml({
+        recipientName: name,
+        recipientEmail: email,
+        subject: autoResponderSubject,
+        bodyText: `Thank you for getting in touch.\n\nWe have successfully received your ${isSales ? 'enquiry' : 'request'} and a member of our customer support team will review it and respond to you as soon as possible.\n\nWe aim to respond to all queries promptly during our business hours. If your request is urgent, please feel free to contact us directly.`,
+        brandName: source || 'Online Land Registry',
+      })
+
+      await sendEmail({
+        to: email,
+        subject: autoResponderSubject,
+        html: emailHtml
+      })
+    } catch (emailErr) {
+      console.error('Failed to send auto-responder email:', emailErr)
+    }
+
     return NextResponse.json({ success: true }, { headers: corsHeaders })
   } catch (err) {
     console.error('Webhook error:', err)
