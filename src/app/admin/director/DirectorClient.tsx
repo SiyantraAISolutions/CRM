@@ -16,7 +16,7 @@ import {
 import Avatar from '@/components/ui/Avatar'
 import { createClient } from '@/lib/supabase/client'
 
-interface Order { id: string; status: string; amount_total: number; created_at: string; business_id: string; user_id: string; completed_by?: string; form_type?: any }
+interface Order { id: string; status: string; monitor_stage?: string; amount_total: number; created_at: string; business_id: string; user_id: string; completed_by?: string; form_type?: any }
 interface Payment { id: string; amount: number; status: string; created_at: string; business_id: string }
 interface Enquiry { id: string; pipeline_stage: string; created_at: string; business_id: string; assigned_to: string }
 interface Business { id: string; name: string; colour?: string }
@@ -146,8 +146,12 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
       const completedTasks = memberTasks.filter(t => t.status === 'done').length
       const openTasks = memberTasks.filter(t => t.status !== 'done').length
 
-      const completedOrders = orders.filter(o => o.completed_by === member.id)
-      const totalCompletedSales = completedOrders.reduce((s, o) => s + Number(o.amount_total), 0)
+      const completedOrders = orders.filter(o => {
+        const isComp = o.status === 'completed' || o.monitor_stage === 'completed'
+        if (!isComp) return false
+        return o.completed_by === member.id || o.user_id === member.id
+      })
+      const totalCompletedSales = completedOrders.reduce((s, o) => s + Number(o.amount_total || 0), 0)
 
       return {
         ...member,
@@ -249,10 +253,15 @@ export default function DirectorClient({ orders, payments, enquiries, businesses
     }
   }, [selectedAgentId, agentPerformance, activityLogs, orders, tasks])
 
-  // Summary stats
+  // Summary stats (30d metrics for top KPI cards)
+  const thirtyDaysAgoTime = useMemo(() => Date.now() - 30 * 24 * 60 * 60 * 1000, [])
+  const ordersLast30Days = useMemo(() => {
+    return orders.filter(o => new Date(o.created_at).getTime() >= thirtyDaysAgoTime)
+  }, [orders, thirtyDaysAgoTime])
+
   const totalRevenue = payments.filter(p => p.status === 'cleared').reduce((s, p) => s + Number(p.amount), 0)
-  const totalOrders = orders.length
-  const paidOrders = orders.filter(o => ['paid', 'cleared', 'processing', 'completed'].includes(o.status)).length
+  const totalOrders = ordersLast30Days.length
+  const paidOrders = ordersLast30Days.filter(o => ['paid', 'cleared', 'processing', 'completed'].includes(o.status)).length
   const conversionRate = totalOrders > 0 ? Math.round((paidOrders / totalOrders) * 100) : 0
   const wonEnquiries = enquiries.filter(e => e.pipeline_stage === 'won').length
   const openTasksCount = tasks.filter(t => t.status !== 'done').length

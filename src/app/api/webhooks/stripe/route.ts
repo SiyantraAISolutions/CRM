@@ -83,6 +83,38 @@ export async function POST(req: NextRequest) {
       })
     }
   }
+  if (event.type === 'checkout.session.expired') {
+    const session = event.data as { object: Record<string, unknown> }
+    const sessionObj = session.object
+
+    const orderId = (sessionObj.metadata as Record<string, string>)?.order_id
+    const amount = Number(sessionObj.amount_total ?? 0) / 100
+
+    if (orderId) {
+      // Only mark as abandoned if the order hasn't already been paid
+      const { data: existingOrder } = await supabase
+        .from('orders')
+        .select('status')
+        .eq('id', orderId)
+        .single()
+
+      if (existingOrder && !['paid', 'processing', 'in_progress', 'completed', 'dead'].includes(existingOrder.status)) {
+        await supabase.from('orders').update({
+          status: 'abandoned',
+          updated_at: new Date().toISOString(),
+        }).eq('id', orderId)
+
+        // Add timeline note
+        await supabase.from('order_notes').insert({
+          order_id: orderId,
+          message: `⚠️ Checkout abandoned — Customer did not complete payment of £${amount.toFixed(2)}. Stripe session expired.`,
+          category: 'Abandoned',
+        })
+
+        console.log(`Order ${orderId} marked as abandoned — £${amount}`)
+      }
+    }
+  }
 
   return NextResponse.json({ received: true })
 }

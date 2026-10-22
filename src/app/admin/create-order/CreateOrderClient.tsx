@@ -88,6 +88,7 @@ interface FormType { id: string; code: string; name: string; brand_ids: string[]
 interface Props { 
   brands: Brand[]
   resumeDraft?: any
+  userRole?: string
 }
 
 interface UpsellSelections {
@@ -102,9 +103,10 @@ const UPSELL_PRICES = {
   sms_updates: 2.50,
 }
 
-export default function CreateOrderClient({ brands, resumeDraft }: Props) {
+export default function CreateOrderClient({ brands, resumeDraft, userRole = 'sales' }: Props) {
   const router = useRouter()
   const supabase = createClient()
+  const isAdminOrDirector = userRole === 'admin' || userRole === 'director'
 
   const [step, setStep] = useState<WizardStep>(resumeDraft ? 'wizard' : 'landing')
   const [interactionType, setInteractionType] = useState<'inbound' | 'inbound_bing' | 'inbound_google' | 'outbound' | 'help_request' | 'enquiry' | 'appointment' | null>(resumeDraft?.interaction_type || null)
@@ -2069,20 +2071,22 @@ export default function CreateOrderClient({ brands, resumeDraft }: Props) {
                       </div>
                     </button>
 
-                    <button
-                      onClick={handleTakePaymentNow}
-                      disabled={submitting || !termsAccepted}
-                      className="w-full flex items-center gap-4 rounded-xl border-2 border-slate-200 hover:border-green-600 hover:bg-green-50/50 p-5 text-left transition-all group"
-                    >
-                      <div className="h-12 w-12 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
-                        {submitting && !generatingLink ? <Loader2 className="h-6 w-6 text-green-600 animate-spin" /> :
-                         <CreditCard className="h-6 w-6 text-green-600" />}
-                      </div>
-                      <div>
-                        <div className="font-semibold text-slate-900 group-hover:text-green-700">Take Payment Now</div>
-                        <div className="text-xs text-slate-400 mt-0.5">Create order & enter card details securely via Stripe Elements</div>
-                      </div>
-                    </button>
+                    {isAdminOrDirector && (
+                      <button
+                        onClick={handleTakePaymentNow}
+                        disabled={submitting || !termsAccepted}
+                        className="w-full flex items-center gap-4 rounded-xl border-2 border-slate-200 hover:border-green-600 hover:bg-green-50/50 p-5 text-left transition-all group"
+                      >
+                        <div className="h-12 w-12 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
+                          {submitting && !generatingLink ? <Loader2 className="h-6 w-6 text-green-600 animate-spin" /> :
+                           <CreditCard className="h-6 w-6 text-green-600" />}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-slate-900 group-hover:text-green-700">Take Payment Now</div>
+                          <div className="text-xs text-slate-400 mt-0.5">Create order & enter card details securely via Stripe Elements</div>
+                        </div>
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

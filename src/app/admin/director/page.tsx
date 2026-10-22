@@ -24,7 +24,9 @@ export default async function DirectorPage({ searchParams }: Props) {
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
 
-  let ordersQuery = supabase.from('orders').select('id, status, amount_total, created_at, business_id, user_id, completed_by, form_type:form_types(id, name)').gte('created_at', thirtyDaysAgo)
+  let ordersQuery = supabase
+    .from('orders')
+    .select('id, status, monitor_stage, amount_total, created_at, business_id, user_id, completed_by, form_type:form_types(id, name)')
   let paymentsQuery = supabase.from('payments').select('id, amount, status, created_at, business_id')
   let enquiriesQuery = supabase.from('enquiries').select('id, pipeline_stage, created_at, business_id, assigned_to').gte('created_at', thirtyDaysAgo)
 

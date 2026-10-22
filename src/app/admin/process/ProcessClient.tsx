@@ -106,7 +106,12 @@ export default function ProcessClient({ formTypes }: Props) {
     }
     const { error } = await supabase.from('orders').update(updatePayload).eq('id', orderId)
     if (error) toast.error('Failed to update status')
-    else toast.success(`Order moved to ${newStatus.replace('_', ' ')}`)
+    else {
+      toast.success(`Order moved to ${newStatus.replace('_', ' ')}`)
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('orders-updated'))
+      }
+    }
   }
 
   const updateTracking = async (orderId: string, provider: string, trackingNumber: string) => {
@@ -253,48 +258,6 @@ export default function ProcessClient({ formTypes }: Props) {
                               "{order.deferred_reason}"
                             </p>
                           )}
-                        </div>
-                      )}
-
-                      {/* Completed / Shipping Section */}
-                      {col.id === 'completed' && (
-                        <div className="mt-4 pt-4 border-t border-slate-100">
-                          <div className="text-[10px] font-bold text-slate-700 mb-2 flex items-center gap-1.5">
-                            <Truck className="h-3 w-3 text-purple-600" /> Postage / Shipping
-                          </div>
-                          <form 
-                            onSubmit={(e) => {
-                              e.preventDefault()
-                              const fd = new FormData(e.currentTarget)
-                              updateTracking(order.id, fd.get('provider') as string, fd.get('tracking') as string)
-                            }}
-                            className="space-y-2"
-                          >
-                            <select 
-                              name="provider" 
-                              defaultValue={order.postage_provider || ''}
-                              className="w-full text-xs p-1.5 rounded border border-slate-200 font-medium"
-                            >
-                              <option value="">Select Provider...</option>
-                              <option value="Royal Mail">Royal Mail</option>
-                              <option value="DPD">DPD</option>
-                              <option value="Evri">Evri</option>
-                              <option value="DHL">DHL</option>
-                              <option value="FedEx">FedEx</option>
-                            </select>
-                            <div className="flex gap-2">
-                              <input 
-                                name="tracking"
-                                type="text"
-                                defaultValue={order.tracking_number || ''}
-                                placeholder="Tracking Number..."
-                                className="flex-1 text-xs p-1.5 rounded border border-slate-200 font-medium"
-                              />
-                              <button type="submit" className="bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold px-3 rounded transition-colors">
-                                Save
-                              </button>
-                            </div>
-                          </form>
                         </div>
                       )}
 

@@ -2,9 +2,10 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
+import { useBusiness } from '@/context/BusinessContext'
 import {
   LayoutDashboard, Ticket, ShoppingCart, Plus, HelpCircle,
   Archive, BookOpen, Shield, LogOut, ChevronLeft, ChevronRight,
@@ -29,6 +30,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
+  const { activeBusinessId } = useBusiness()
   const [collapsed, setCollapsed] = useState(false)
   const [counts, setCounts] = useState(badgeCounts ?? { tickets: 0, helpRequests: 0, abandoned: 0, notifications: 0, refunds: 0 })
   const [services, setServices] = useState<{ id: string; name: string; code: string }[]>([])
@@ -36,6 +38,42 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
   const [templatesExpanded, setTemplatesExpanded] = useState(false)
   const [ordersExpanded, setOrdersExpanded] = useState(false)
   const [orderCounts, setOrderCounts] = useState<Record<string, number>>({})
+
+  // Fetch active uncompleted applications per form type
+  const refreshOrderCounts = useCallback(async () => {
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      if (!session || sessionError) return
+
+      let query = supabase
+        .from('orders')
+        .select('form_type_id')
+        .in('status', ['paid', 'processing', 'in_progress'])
+        .neq('status', 'completed')
+        .neq('monitor_stage', 'completed')
+
+      if (activeBusinessId && activeBusinessId !== 'all') {
+        query = query.eq('business_id', activeBusinessId)
+      }
+
+      const { data: oData, error: oError } = await query
+      if (oError && !oError.message.includes('JWT')) console.error('Error fetching order counts:', oError.message)
+
+      if (oData) {
+        const newCounts: Record<string, number> = {}
+        oData.forEach((o: any) => {
+          if (o.form_type_id) {
+            newCounts[o.form_type_id] = (newCounts[o.form_type_id] || 0) + 1
+          }
+        })
+        setOrderCounts(newCounts)
+      }
+    } catch (error: any) {
+      if (error?.message && !error.message.includes('JWT') && !error.message.includes('session')) {
+        console.error('Error refreshing order counts:', error)
+      }
+    }
+  }, [supabase, activeBusinessId])
 
   // Live badge counts via Supabase realtime
   useEffect(() => {
@@ -51,7 +89,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
           return
         }
 
-        let hQuery = supabase.from('help_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+        let hQuery = supabase.from('help_requests').select('id', { count: 'exact', head: true }).in('status', ['pending', 'in_progress'])
         if (userRole === 'sales') {
           hQuery = hQuery.ilike('subject', 'Sales Enquiry%')
         } else {
@@ -79,6 +117,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
             abandoned: a.count ?? 0,
             refunds: r.count ?? 0,
           }))
+          refreshOrderCounts()
         }
       } catch (error: any) {
         // Silently handle auth errors during hot reload
@@ -90,13 +129,24 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
     
     refreshCounts()
 
-    // Refresh every 60s
-    const interval = setInterval(refreshCounts, 60000)
+    // Listen for custom orders-updated event across the app
+    const handleOrderUpdate = () => {
+      refreshOrderCounts()
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('orders-updated', handleOrderUpdate)
+    }
+
+    // Refresh every 30s
+    const interval = setInterval(refreshCounts, 30000)
     return () => {
       isMounted = false
       clearInterval(interval)
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('orders-updated', handleOrderUpdate)
+      }
     }
-  }, [supabase])
+  }, [supabase, refreshOrderCounts, userRole])
 
   // Fetch Services & Templates Once
   useEffect(() => {
@@ -112,16 +162,14 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
           return
         }
 
-        const [{ data: sData, error: sError }, { data: tData, error: tError }, { data: oData, error: oError }] = await Promise.all([
+        const [{ data: sData, error: sError }, { data: tData, error: tError }] = await Promise.all([
           supabase.from('form_types').select('id, name, code').order('name'),
           supabase.from('email_templates').select('id, name').order('name'),
-          supabase.from('orders').select('form_type_id').in('status', ['lead', 'paid'])
         ])
 
         // Only log errors if they're not auth-related
         if (sError && !sError.message.includes('JWT')) console.error('Error fetching form types:', sError.message)
         if (tError && !tError.message.includes('JWT')) console.error('Error fetching email templates:', tError.message)
-        if (oError && !oError.message.includes('JWT')) console.error('Error fetching orders:', oError.message)
 
         if (!isMounted) return
 
@@ -153,15 +201,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
           setServices(mappedServices)
         }
         if (tData) setEmailTemplates(tData)
-        if (oData) {
-          const counts: Record<string, number> = {}
-          oData.forEach((o: any) => {
-            if (o.form_type_id) {
-              counts[o.form_type_id] = (counts[o.form_type_id] || 0) + 1
-            }
-          })
-          setOrderCounts(counts)
-        }
+        refreshOrderCounts()
       } catch (error: any) {
         // Silently handle auth errors during hot reload
         if (error?.message && !error.message.includes('JWT') && !error.message.includes('session')) {
@@ -174,7 +214,7 @@ export default function Sidebar({ badgeCounts, userRole = 'sales' }: SidebarProp
     return () => {
       isMounted = false
     }
-  }, [supabase])
+  }, [supabase, refreshOrderCounts])
 
   type NavItem = {
     label: string

@@ -111,6 +111,13 @@ export interface Order {
   updated_at: string
   items?: OrderItem[]
   notes?: OrderNote[]
+  payments?: {
+    id: string
+    method: string
+    status: string
+    processed_by?: string | null
+    processor?: { id: string; full_name: string } | null
+  }[]
 }
 
 export interface OrderItem {

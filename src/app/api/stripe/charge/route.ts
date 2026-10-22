@@ -28,15 +28,15 @@ export async function POST(req: NextRequest) {
     // Use admin client to bypass RLS for role check and order lookup
     const adminSupabase = getSupabaseAdmin()
 
-    // Check role — director, admin & sales can take payments
+    // Check role — director and admin only can take payments
     const { data: profile } = await adminSupabase
       .from('users')
       .select('role')
       .eq('id', user.id)
       .single()
 
-    if (!profile || !['director', 'admin', 'sales'].includes(profile.role)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    if (!profile || !['director', 'admin'].includes(profile.role)) {
+      return NextResponse.json({ error: 'Forbidden. Only admins and directors can take payments.' }, { status: 403 })
     }
 
     const body = await req.json()

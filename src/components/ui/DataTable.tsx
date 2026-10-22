@@ -21,10 +21,12 @@ interface DataTableProps<T> {
   totalCount?: number // for server-side
   page?: number
   onPageChange?: (page: number) => void
+  onPageSizeChange?: (pageSize: number) => void
   onSearch?: (search: string) => void
   onSort?: (key: string, dir: 'asc' | 'desc') => void
   loading?: boolean
   emptyMessage?: string
+  searchPlaceholder?: string
   defaultSortKey?: string
   defaultSortDir?: 'asc' | 'desc'
 }
@@ -34,10 +36,12 @@ export default function DataTable<T extends Record<string, unknown>>({
   data,
   onRowClick,
   searchable = true,
+  searchPlaceholder,
   pageSize = 10,
   totalCount,
   page = 1,
   onPageChange,
+  onPageSizeChange,
   onSearch,
   onSort,
   loading,
@@ -111,22 +115,29 @@ export default function DataTable<T extends Record<string, unknown>>({
             value={isServerSide ? pageSize : localPageSize}
             onChange={(e) => {
               const val = Number(e.target.value)
-              if (!isServerSide) { setLocalPageSize(val); setLocalPage(1) }
+              if (isServerSide) {
+                onPageSizeChange?.(val)
+              } else {
+                setLocalPageSize(val)
+                setLocalPage(1)
+              }
             }}
           >
-            {[10, 25, 50, 100].map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
+            {Array.from(new Set([10, 25, 50, 100, isServerSide ? pageSize : localPageSize]))
+              .sort((a, b) => a - b)
+              .map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
           </select>
           <span className="text-sm text-ink-gray-5">entries</span>
         </div>
         {searchable && (
-          <div className="relative w-60">
+          <div className="relative w-72">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-gray-4" />
             <input
               type="text"
-              placeholder="Search..."
-              className="form-input pl-8 py-1 text-sm"
+              placeholder={searchPlaceholder || "Search..."}
+              className="form-input pl-8 py-1 text-sm w-full"
               value={search}
               onChange={(e) => handleSearch(e.target.value)}
             />

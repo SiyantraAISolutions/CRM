@@ -15,6 +15,7 @@ export default function PaymentsClient({ businesses }: { businesses: Business[] 
   const [data, setData] = useState<Record<string, unknown>[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('all')
   const [methodFilter, setMethodFilter] = useState('all')
@@ -51,7 +52,7 @@ export default function PaymentsClient({ businesses }: { businesses: Business[] 
         processor:users!payments_processed_by_fkey(id, full_name)
       `, { count: 'exact' })
       .order('created_at', { ascending: false })
-      .range((page - 1) * 20, page * 20 - 1)
+      .range((page - 1) * pageSize, page * pageSize - 1)
 
     if (statusFilter !== 'all') q = q.eq('status', statusFilter)
     if (methodFilter !== 'all') q = q.eq('method', methodFilter)
@@ -60,7 +61,7 @@ export default function PaymentsClient({ businesses }: { businesses: Business[] 
     setData(d ?? [])
     setTotal(count ?? 0)
     setLoading(false)
-  }, [page, statusFilter, methodFilter, supabase])
+  }, [page, pageSize, statusFilter, methodFilter, supabase])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -237,8 +238,9 @@ export default function PaymentsClient({ businesses }: { businesses: Business[] 
         data={data}
         totalCount={total}
         page={page}
-        pageSize={20}
+        pageSize={pageSize}
         onPageChange={setPage}
+        onPageSizeChange={(newSize) => { setPageSize(newSize); setPage(1); }}
         loading={loading}
       />
 

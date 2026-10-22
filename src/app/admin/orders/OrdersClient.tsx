@@ -8,7 +8,7 @@ import Badge from '@/components/ui/Badge'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDateTime } from '@/lib/utils'
 import { useBusiness } from '@/context/BusinessContext'
-import { Zap } from 'lucide-react'
+import { Zap, Globe, Phone } from 'lucide-react'
 import { Order } from '@/types'
 
 interface Props {
@@ -37,16 +37,26 @@ export default function OrdersClient({ brands, formTypes }: Props) {
   const [orders, setOrders] = useState<Order[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const [pageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(10)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const searchParams = useSearchParams()
   const [brandFilter, setBrandFilter] = useState('all')
   const [formTypeFilter, setFormTypeFilter] = useState(searchParams.get('form_type_id') || 'all')
+  const [statusFilter, setStatusFilter] = useState('active')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [sortKey, setSortKey] = useState('created_at')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [sortKey, setSortKey] = useState('status')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search)
+      setPage(1)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [search])
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
@@ -55,9 +65,10 @@ export default function OrdersClient({ brands, formTypes }: Props) {
         business_id: activeBusinessId,
         brand_id: brandFilter,
         form_type_id: formTypeFilter,
+        status_filter: statusFilter,
         date_from: dateFrom,
         date_to: dateTo,
-        search,
+        search: debouncedSearch,
         sort_key: sortKey,
         sort_dir: sortDir,
         page: String(page),
@@ -77,7 +88,7 @@ export default function OrdersClient({ brands, formTypes }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [page, pageSize, search, activeBusinessId, brandFilter, formTypeFilter, dateFrom, dateTo, sortKey, sortDir])
+  }, [page, pageSize, debouncedSearch, activeBusinessId, brandFilter, formTypeFilter, statusFilter, dateFrom, dateTo, sortKey, sortDir])
 
   useEffect(() => {
     setPage(1)
@@ -141,9 +152,41 @@ export default function OrdersClient({ brands, formTypes }: Props) {
       render: (v) => <span className="text-xs">{formatDateTime(String(v))}</span>,
     },
     {
-      key: 'manual_payment',
-      label: 'Manual Payment',
-      render: (v) => v ? <Badge label="Yes" variant="blue" /> : <Badge label="No" variant="gray" />,
+      key: 'source',
+      label: 'Source',
+      render: (_, row: any) => {
+        const processorName = row.payments?.find((p: any) => p.processor?.full_name)?.processor?.full_name
+        const creatorName = row.user?.full_name
+        const staffName = processorName || creatorName
+        const isCrm = Boolean(row.user_id || staffName)
+
+        if (!isCrm) {
+          return (
+            <div className="flex flex-col gap-0.5">
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 w-max">
+                <Globe className="h-3 w-3 text-slate-500" />
+                Customer
+              </span>
+              <span className="text-[10px] text-ink-gray-4 pl-0.5">Website</span>
+            </div>
+          )
+        }
+
+        const callType = row.is_inbound ? 'Inbound' : 'Outbound'
+
+        return (
+          <div className="flex flex-col gap-0.5">
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 w-max">
+              <Phone className="h-3 w-3 text-purple-500" />
+              CRM ({callType})
+            </span>
+            <div className="text-[11px] text-ink-gray-6 pl-0.5 leading-tight">
+              <span className="text-ink-gray-4 text-[10px]">Staff: </span>
+              <span className="font-semibold text-slate-800">{staffName || 'Staff'}</span>
+            </div>
+          </div>
+        )
+      },
     },
     {
       key: 'priority',
@@ -166,6 +209,39 @@ export default function OrdersClient({ brands, formTypes }: Props) {
       },
     },
   ]
+
+  const getStatusRank = (status?: string | null): number => {
+    const s = (status || '').trim().toLowerCase()
+    if (s === 'lead') return 1 // New
+    if (s === 'processing' || s === 'in_progress') return 2 // Processing
+    if (s === 'paid') return 3 // Paid
+    return 4 // Others
+  }
+
+  const visibleOrders = orders.filter((o) => {
+    const st = (o.status || '').trim().toLowerCase()
+    const ms = ((o as any).monitor_stage || '').trim().toLowerCase()
+    if (statusFilter === 'completed') {
+      return st === 'completed' || ms === 'completed'
+    }
+    if (statusFilter === 'all') {
+      return st !== 'abandoned' && st !== 'dead'
+    }
+    // 'active' (default)
+    return st !== 'completed' && ms !== 'completed' && st !== 'abandoned' && st !== 'dead'
+  }).sort((a, b) => {
+    if (sortKey === 'status' || sortKey === 'status_priority') {
+      const rankA = getStatusRank(a.status)
+      const rankB = getStatusRank(b.status)
+      if (rankA !== rankB) {
+        return sortDir === 'desc' ? rankB - rankA : rankA - rankB
+      }
+      const timeA = new Date(a.created_at || 0).getTime()
+      const timeB = new Date(b.created_at || 0).getTime()
+      return timeB - timeA
+    }
+    return 0
+  })
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -191,21 +267,29 @@ export default function OrdersClient({ brands, formTypes }: Props) {
           <option value="all">All Forms</option>
           {formTypes.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
         </select>
+        <select className="form-input py-1 text-xs w-52 font-medium"
+          value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}>
+          <option value="active">Active Orders (Hide Completed)</option>
+          <option value="completed">Completed Orders</option>
+          <option value="all">All Orders (Show Completed)</option>
+        </select>
       </div>
 
       <DataTable
         columns={columns}
-        data={orders as unknown as Record<string, unknown>[]}
+        data={visibleOrders as unknown as Record<string, unknown>[]}
         onRowClick={(row) => router.push(`/admin/orders/${row.id}`)}
         totalCount={total}
         page={page}
         pageSize={pageSize}
         onPageChange={setPage}
+        onPageSizeChange={(newSize) => { setPageSize(newSize); setPage(1); }}
         onSearch={(s) => { setSearch(s); setPage(1) }}
         onSort={(k, d) => { setSortKey(k); setSortDir(d); setPage(1) }}
         loading={loading}
-        defaultSortKey="created_at"
-        defaultSortDir="desc"
+        defaultSortKey="status"
+        defaultSortDir="asc"
+        searchPlaceholder="Search ID, name, email, phone, postcode..."
       />
     </div>
   )

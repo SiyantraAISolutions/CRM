@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink, Calendar, RefreshCcw, Clock, ArrowRight, MessageSquare, AlertCircle, ShieldCheck, Search, Upload, Eye, X, FileText, Phone, Mail, Send } from 'lucide-react'
+import { Plus, Trash2, Save, CreditCard, Link2, RotateCcw, Copy, Check, Loader2, ExternalLink, Calendar, RefreshCcw, Clock, ArrowRight, MessageSquare, AlertCircle, ShieldCheck, Search, Upload, Eye, X, FileText, Phone, Mail, Send, Truck } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDateTime, timeAgo, cn } from '@/lib/utils'
 import Badge from '@/components/ui/Badge'
@@ -285,7 +285,45 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
       }
     })
 
-    // Save to order_notes timeline note first (always succeeds)
+    // Map extracted entries directly to orders database columns
+    const dbUpdates: Record<string, any> = {}
+    
+    Object.entries(map).forEach(([rawKey, val]) => {
+      const k = rawKey.toLowerCase().replace(/[^a-z0-9]/g, '_')
+      if (['phone', 'telephone', 'mobile', 'contact_number'].includes(k)) {
+        dbUpdates.phone = val
+      } else if (['email', 'email_address'].includes(k)) {
+        dbUpdates.email = val
+      } else if (['title_number', 'title_no'].includes(k)) {
+        dbUpdates.title_number = val
+      } else if (['property_value', 'value', 'estimated_value'].includes(k)) {
+        const cleanVal = val.replace(/[^0-9.]/g, '')
+        if (cleanVal) dbUpdates.property_value = cleanVal
+      } else if (['tenure'].includes(k)) {
+        dbUpdates.tenure = val
+      } else if (['tenancy_type'].includes(k)) {
+        dbUpdates.tenancy_type = val
+      } else if (['customer_name', 'full_name', 'name'].includes(k)) {
+        const parts = val.split(' ').filter(Boolean)
+        if (parts.length === 1) {
+          dbUpdates.first_name = parts[0]
+        } else if (parts.length > 1) {
+          dbUpdates.first_name = parts[0]
+          dbUpdates.last_name = parts.slice(1).join(' ')
+        }
+      } else if (['property_address', 'address'].includes(k)) {
+        dbUpdates.address_line1 = val
+      }
+    })
+
+    // Also persist all custom fields in submission_requirements
+    const newSubmissionReqs = {
+      ...submissionReqs,
+      application_details: map
+    }
+    dbUpdates.submission_requirements = newSubmissionReqs
+
+    // Save to order_notes timeline note
     const formattedDetails = Object.entries(map)
       .map(([k, v]) => `• ${k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}: ${v}`)
       .join('\n')
@@ -296,18 +334,21 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
       category: 'Application Details',
     })
 
-    // Silent update if form_data column exists
-    try {
-      await supabase.from('orders').update({ form_data: map }).eq('id', order.id)
-    } catch (e) {
-      console.warn('form_data column update skipped', e)
-    }
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update(dbUpdates)
+      .eq('id', order.id)
 
     setSaving(false)
-    setAppFormData(map)
-    setOrder({ ...order, form_data: map })
-    setEditingAppDetails(false)
-    toast.success('Application form details saved successfully!')
+    if (updateError) {
+      toast.error(`Failed to update application details: ${updateError.message}`)
+    } else {
+      setAppFormData(map)
+      setSubmissionReqs(newSubmissionReqs)
+      setOrder(prev => ({ ...prev, ...dbUpdates, form_data: map }))
+      setEditingAppDetails(false)
+      toast.success('Application form details saved successfully!')
+    }
   }
 
   async function handleDial(num: string) {
@@ -372,6 +413,26 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   const [documentUrl, setDocumentUrl] = useState(order.document_url || null)
   const [uploadingDoc, setUploadingDoc] = useState(false)
   const [paymentVerifiedBy, setPaymentVerifiedBy] = useState((order as any).payment_verified_by || (order as any).submission_requirements?.payment_verified_by || '')
+
+  // Postage & Shipping State
+  const [postageProvider, setPostageProvider] = useState(order.postage_provider || '')
+  const [trackingNumber, setTrackingNumber] = useState(order.tracking_number || '')
+  const [savingTracking, setSavingTracking] = useState(false)
+
+  async function saveTrackingInfo() {
+    setSavingTracking(true)
+    const { error } = await supabase.from('orders').update({
+      postage_provider: postageProvider || null,
+      tracking_number: trackingNumber || null,
+    }).eq('id', order.id)
+    setSavingTracking(false)
+    if (error) {
+      toast.error('Failed to save postage details: ' + error.message)
+    } else {
+      toast.success('Postage & shipping details updated successfully!')
+      setOrder(prev => ({ ...prev, postage_provider: postageProvider, tracking_number: trackingNumber }))
+    }
+  }
 
   // Helper to format and apply a template to subject and body
   const applyTemplate = (t: { id: string; subject: string; body: string }) => {
@@ -802,7 +863,22 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   const brand = order.brand as { name: string; code: string } | null
   const formType = order.form_type as { name: string } | null
   const status = order.status as string | null
+  const isCompleted = status === 'completed' || monitorStage === 'completed'
   const stripePaymentId = order.stripe_payment_intent_id as string | undefined
+
+  const hasPostageOrShipping = Boolean(
+    order.postage_provider ||
+    order.tracking_number ||
+    (order as any).delivery_type === 'pdf_printed' ||
+    (order as any).delivery_type?.includes('print') ||
+    (order as any).form_data?.delivery_type === 'pdf_printed' ||
+    (order as any).form_data?.deliveryType === 'pdf_printed' ||
+    (order as any).form_data?.addons?.some((a: string) => typeof a === 'string' && (a.toLowerCase().includes('print') || a.toLowerCase().includes('post'))) ||
+    items.some(i => {
+      const t = (i.item_type || '').toLowerCase()
+      return t.includes('printed') || t.includes('postage') || t.includes('shipping') || t.includes('delivery')
+    })
+  )
 
   function renderTemplate(text: string) {
     if (!text) return ''
@@ -965,12 +1041,21 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
       correspondingStatus = 'completed'
     }
 
+    const updatePayload: any = {
+      monitor_stage: newStage,
+      status: correspondingStatus
+    }
+
+    if (newStage === 'completed') {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        updatePayload.completed_by = user.id
+      }
+    }
+
     const { error } = await supabase
       .from('orders')
-      .update({
-        monitor_stage: newStage,
-        status: correspondingStatus
-      })
+      .update(updatePayload)
       .eq('id', order.id)
 
     if (error) {
@@ -981,6 +1066,10 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
 
     setMonitorStage(newStage)
     setOrder(prev => ({ ...prev, monitor_stage: newStage, status: correspondingStatus }))
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('orders-updated'))
+    }
     
     // Log timeline note
     await addTimelineNote(`Application process status changed to: ${newStage.toUpperCase().replace('_', ' ')}`, 'Status Change')
@@ -1874,6 +1963,70 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
               </div>
             </div>
 
+            {/* Postage & Shipping Section - Only for orders where customer opted for postage */}
+            {hasPostageOrShipping && (
+              <div className="p-6 bg-white border border-slate-200 rounded-xl shadow-sm mt-8 max-w-xl">
+                <div className="flex items-center gap-2.5 mb-3">
+                  <div className="p-2 rounded-lg bg-purple-50 text-purple-700">
+                    <Truck className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-[15px] font-bold text-slate-900">Postage & Shipping Fulfillment</h3>
+                    <p className="text-xs text-slate-500">Customer opted for postal delivery / printed copy.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4 mt-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Delivery Provider
+                    </label>
+                    <select
+                      disabled={!isAdminOrDirector || savingTracking}
+                      value={postageProvider}
+                      onChange={e => setPostageProvider(e.target.value)}
+                      className="form-input text-sm w-full bg-white border-slate-300 rounded-md"
+                    >
+                      <option value="">Select Provider...</option>
+                      <option value="Royal Mail">Royal Mail</option>
+                      <option value="DPD">DPD</option>
+                      <option value="Evri">Evri</option>
+                      <option value="DHL">DHL</option>
+                      <option value="FedEx">FedEx</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Tracking Number
+                    </label>
+                    <input
+                      type="text"
+                      disabled={!isAdminOrDirector || savingTracking}
+                      value={trackingNumber}
+                      onChange={e => setTrackingNumber(e.target.value)}
+                      placeholder="e.g. GB123456789 or 16-digit tracking code"
+                      className="form-input text-sm w-full bg-white border-slate-300 rounded-md font-mono"
+                    />
+                  </div>
+
+                  {isAdminOrDirector && (
+                    <div className="flex justify-end pt-2">
+                      <button
+                        type="button"
+                        disabled={savingTracking}
+                        onClick={saveTrackingInfo}
+                        className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-5 py-2.5 rounded-lg shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        {savingTracking && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                        Save Postage Details
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Stripe Elements Payment Form */}
             {showPaymentForm && paymentClientSecret && (
               <div className="panel p-6 bg-white border border-slate-200 rounded-md shadow-sm mt-8 max-w-xl">
@@ -1910,7 +2063,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
             )}
 
             {/* Status Actions */}
-            {isAdminOrDirector && (
+            {isAdminOrDirector && !isCompleted && (
               <div className="flex flex-wrap items-center gap-3 mt-16">
                 {(status !== 'paid' && status !== 'processing') && !showPaymentForm && (
                   <button
@@ -2165,93 +2318,93 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                 </div>
               )}
             </div>
-          </div>
-        )}
 
-        {/* Order Attachments Section */}
-        <div className="mx-10 my-8 border-t border-slate-200 pt-8 max-w-4xl">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h3 className="text-[16px] font-bold text-[#0B1B3A]">Order Attachments</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Documents, images, and other supporting files.</p>
-            </div>
-            {isAdminOrDirector && (
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowUploadModal(true)}
-                  className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[13px] font-medium px-4 py-2 rounded-md transition-colors flex items-center gap-2 cursor-pointer"
-                >
-                  <Upload className="h-4 w-4" />
-                  Upload Attachment
-                </button>
+            {/* Order Attachments Section */}
+            <div className="mt-10 border-t border-slate-200 pt-8">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-[16px] font-bold text-[#0B1B3A]">Order Attachments</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Documents, images, and other supporting files.</p>
+                </div>
+                {isAdminOrDirector && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowUploadModal(true)}
+                      className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-[13px] font-medium px-4 py-2 rounded-md transition-colors flex items-center gap-2 cursor-pointer"
+                    >
+                      <Upload className="h-4 w-4" />
+                      Upload Attachment
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* Attachments List */}
-          <div className="space-y-3">
-            {(submissionReqs.attachments || []).map((att: any, idx: number) => {
-              const displayTitle = att.submission_title || att.name
-              const displayType = att.submission_type || 'File Upload'
-              const displayAuthor = att.uploaded_by || 'Admin'
+              {/* Attachments List */}
+              <div className="space-y-3">
+                {(submissionReqs.attachments || []).map((att: any, idx: number) => {
+                  const displayTitle = att.submission_title || att.name
+                  const displayType = att.submission_type || 'File Upload'
+                  const displayAuthor = att.uploaded_by || 'Admin'
 
-              return (
-                <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl gap-3">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 rounded-lg bg-white border border-slate-200 text-slate-400 mt-0.5">
-                      <FileText className="h-5 w-5" />
-                    </div>
-                    <div className="flex flex-col">
-                      <button
-                        onClick={() => handleViewAttachment(att.url)}
-                        className="hover:text-blue-600 transition-colors font-bold text-slate-800 text-sm text-left leading-snug"
-                      >
-                        {displayTitle}
-                      </button>
-                      <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-slate-500 font-medium">
-                        <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-semibold uppercase text-[9px] tracking-wider">
-                          {displayType}
-                        </span>
-                        <span>•</span>
-                        <span>Uploaded by <span className="font-semibold text-slate-700">{displayAuthor}</span></span>
-                        <span>•</span>
-                        <span>{new Date(att.uploaded_at).toLocaleDateString()}</span>
-                        <span>•</span>
-                        <span className="text-slate-400 italic max-w-[150px] truncate" title={att.name}>{att.name}</span>
+                  return (
+                    <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 rounded-lg bg-white border border-slate-200 text-slate-400 mt-0.5">
+                          <FileText className="h-5 w-5" />
+                        </div>
+                        <div className="flex flex-col">
+                          <button
+                            onClick={() => handleViewAttachment(att.url)}
+                            className="hover:text-blue-600 transition-colors font-bold text-slate-800 text-sm text-left leading-snug"
+                          >
+                            {displayTitle}
+                          </button>
+                          <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-slate-500 font-medium">
+                            <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-semibold uppercase text-[9px] tracking-wider">
+                              {displayType}
+                            </span>
+                            <span>•</span>
+                            <span>Uploaded by <span className="font-semibold text-slate-700">{displayAuthor}</span></span>
+                            <span>•</span>
+                            <span>{new Date(att.uploaded_at).toLocaleDateString()}</span>
+                            <span>•</span>
+                            <span className="text-slate-400 italic max-w-[150px] truncate" title={att.name}>{att.name}</span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 self-end sm:self-center">
+                        <button
+                          onClick={() => handleViewAttachment(att.url)}
+                          className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors"
+                          title="View file"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        {isAdminOrDirector && (
+                          <button
+                            onClick={() => handleDeleteAttachment(att)}
+                            className="p-1.5 rounded-lg border border-red-100 bg-red-50 hover:bg-red-100 text-red-500 transition-colors"
+                            title="Delete attachment"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-2 self-end sm:self-center">
-                    <button
-                      onClick={() => handleViewAttachment(att.url)}
-                      className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors"
-                      title="View file"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </button>
-                    {isAdminOrDirector && (
-                      <button
-                        onClick={() => handleDeleteAttachment(att)}
-                        className="p-1.5 rounded-lg border border-red-100 bg-red-50 hover:bg-red-100 text-red-500 transition-colors"
-                        title="Delete attachment"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+                  )
+                })}
 
-            {(!submissionReqs.attachments || submissionReqs.attachments.length === 0) && (
-              <div className="text-center py-8 bg-slate-50/50 border border-dashed border-slate-200 rounded-lg text-slate-400 text-xs font-semibold">
-                No attachments uploaded yet.
+                {(!submissionReqs.attachments || submissionReqs.attachments.length === 0) && (
+                  <div className="text-center py-8 bg-slate-50/50 border border-dashed border-slate-200 rounded-lg text-slate-400 text-xs font-semibold">
+                    No attachments uploaded yet.
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Submit Paper Upload Modal */}
         {showUploadModal && (

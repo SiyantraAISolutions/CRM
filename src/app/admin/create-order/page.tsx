@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { cookies } from 'next/headers'
 import LayoutHeader from '@/components/layout/LayoutHeader'
 import Breadcrumbs from '@/components/layout/Breadcrumbs'
 import CreateOrderClient from './CreateOrderClient'
@@ -6,6 +7,8 @@ import CreateOrderClient from './CreateOrderClient'
 export default async function CreateOrderPage({ searchParams }: { searchParams: Promise<{ draft?: string }> }) {
   const { draft } = await searchParams
   const supabase = await createClient()
+  const cookieStore = await cookies()
+  const userRole = (cookieStore.get('user-role')?.value ?? 'sales')
 
   const { data: brands } = await supabase
     .from('brands')
@@ -31,7 +34,7 @@ export default async function CreateOrderPage({ searchParams }: { searchParams: 
           />
         }
       />
-      <CreateOrderClient brands={brands ?? []} resumeDraft={resumeDraft} />
+      <CreateOrderClient brands={brands ?? []} resumeDraft={resumeDraft} userRole={userRole} />
     </div>
   )
 }

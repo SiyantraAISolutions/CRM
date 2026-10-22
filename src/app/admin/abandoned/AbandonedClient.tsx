@@ -18,6 +18,7 @@ export default function AbandonedClient({ brands }: { brands: Brand[] }) {
   const [data, setData] = useState<Record<string, unknown>[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [brandFilter, setBrandFilter] = useState('all')
@@ -28,7 +29,7 @@ export default function AbandonedClient({ brands }: { brands: Brand[] }) {
       .select('*, brand:brands(id,code,name), form_type:form_types(id,name)', { count: 'exact' })
       .eq('status', 'abandoned')
       .order('created_at', { ascending: false })
-      .range((page - 1) * 10, page * 10 - 1)
+      .range((page - 1) * pageSize, page * pageSize - 1)
 
     if (activeBusinessId !== 'all') q = q.eq('business_id', activeBusinessId)
     if (brandFilter !== 'all') q = q.eq('brand_id', brandFilter)
@@ -38,7 +39,7 @@ export default function AbandonedClient({ brands }: { brands: Brand[] }) {
     setData(d ?? [])
     setTotal(count ?? 0)
     setLoading(false)
-  }, [page, search, activeBusinessId, brandFilter, supabase])
+  }, [page, pageSize, search, activeBusinessId, brandFilter, supabase])
 
   useEffect(() => {
     setPage(1)
@@ -87,8 +88,9 @@ export default function AbandonedClient({ brands }: { brands: Brand[] }) {
         onRowClick={row => router.push(`/admin/abandoned/${row.id}`)}
         totalCount={total}
         page={page}
-        pageSize={10}
+        pageSize={pageSize}
         onPageChange={setPage}
+        onPageSizeChange={(newSize) => { setPageSize(newSize); setPage(1); }}
         onSearch={s => { setSearch(s); setPage(1) }}
         loading={loading}
       />

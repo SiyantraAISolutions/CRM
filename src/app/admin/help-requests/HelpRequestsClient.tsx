@@ -18,9 +18,11 @@ export default function HelpRequestsClient({ brands, userRole = 'sales' }: { bra
   const [data, setData] = useState<Record<string, unknown>[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [brandFilter, setBrandFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('active')
   const [staff, setStaff] = useState<{ id: string, full_name: string }[]>([])
 
   useEffect(() => {
@@ -36,12 +38,18 @@ export default function HelpRequestsClient({ brands, userRole = 'sales' }: { bra
     let q = supabase.from('help_requests')
       .select('*, brand:brands(id,code,name), assignee:users(id,full_name)', { count: 'exact' })
       .order('created_at', { ascending: false })
-      .range((page - 1) * 10, page * 10 - 1)
+      .range((page - 1) * pageSize, page * pageSize - 1)
 
     if (userRole === 'sales') {
       q = q.ilike('subject', 'Sales Enquiry%')
     } else {
       q = q.not('subject', 'ilike', 'Sales Enquiry%')
+    }
+
+    if (statusFilter === 'active') {
+      q = q.neq('status', 'resolved')
+    } else if (statusFilter !== 'all') {
+      q = q.eq('status', statusFilter)
     }
 
     if (activeBusinessId !== 'all') {
@@ -55,7 +63,7 @@ export default function HelpRequestsClient({ brands, userRole = 'sales' }: { bra
     setData(d ?? [])
     setTotal(count ?? 0)
     setLoading(false)
-  }, [page, search, activeBusinessId, brandFilter, supabase, userRole])
+  }, [page, pageSize, search, activeBusinessId, brandFilter, statusFilter, supabase, userRole])
 
   useEffect(() => {
     setPage(1)
@@ -84,7 +92,28 @@ export default function HelpRequestsClient({ brands, userRole = 'sales' }: { bra
     },
     {
       key: 'status', label: 'Status', sortable: true,
-      render: (v) => <Badge label={String(v)} variant={v === 'resolved' ? 'green' : v === 'in_progress' ? 'blue' : 'orange'} />
+      render: (v, row) => (
+        <select
+          className={`form-input py-1 px-2 text-xs font-semibold rounded cursor-pointer ${
+            v === 'resolved'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : v === 'in_progress'
+              ? 'bg-blue-50 text-blue-800 border-blue-200'
+              : 'bg-amber-50 text-amber-800 border-amber-200'
+          }`}
+          value={String(v || 'pending')}
+          onClick={(e) => e.stopPropagation()}
+          onChange={async (e) => {
+            const newStatus = e.target.value
+            await supabase.from('help_requests').update({ status: newStatus }).eq('id', row.id)
+            fetch()
+          }}
+        >
+          <option value="pending">Pending</option>
+          <option value="in_progress">In Progress</option>
+          <option value="resolved">Resolved</option>
+        </select>
+      )
     },
     { key: 'created_at', label: 'Date', render: (v) => <span className="text-xs">{formatDateTime(String(v))}</span> },
     {
@@ -120,6 +149,16 @@ export default function HelpRequestsClient({ brands, userRole = 'sales' }: { bra
           <option value="all">All Sites</option>
           {brands.map(b => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
         </select>
+        <select className="form-input py-1 text-xs w-48 font-medium" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}>
+          <option value="active">Active Queue (Unresolved)</option>
+          <option value="pending">Pending</option>
+          <option value="in_progress">In Progress</option>
+          <option value="resolved">Resolved</option>
+          <option value="all">All Statuses</option>
+        </select>
+        <span className="text-xs text-ink-gray-4 ml-auto">
+          {total.toLocaleString()} {statusFilter === 'active' ? 'open requests' : statusFilter === 'resolved' ? 'resolved requests' : 'total requests'}
+        </span>
       </div>
       <DataTable
         columns={columns}
@@ -127,8 +166,9 @@ export default function HelpRequestsClient({ brands, userRole = 'sales' }: { bra
         onRowClick={row => router.push(`/admin/help-requests/${row.id}`)}
         totalCount={total}
         page={page}
-        pageSize={10}
+        pageSize={pageSize}
         onPageChange={setPage}
+        onPageSizeChange={(newSize) => { setPageSize(newSize); setPage(1); }}
         onSearch={s => { setSearch(s); setPage(1) }}
         loading={loading}
       />
