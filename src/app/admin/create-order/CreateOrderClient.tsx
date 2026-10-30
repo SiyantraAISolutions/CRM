@@ -785,7 +785,7 @@ export default function CreateOrderClient({ brands, resumeDraft, userRole = 'sal
                       <label className="flex items-start gap-2 cursor-pointer mb-2">
                         <input type="checkbox" className="mt-1 border-slate-300 rounded-sm text-[#0B1B3A] focus:ring-[#0B1B3A]" onChange={(e) => setField('addon_title_plan', e.target.checked ? 'yes' : '')} />
                         <div>
-                          <span className="text-[#2c3e50] text-[15px] font-medium">Include Title Plan (£36.00+vat)</span>
+                          <span className="text-[#2c3e50] text-[15px] font-medium">Include Title Plan (£30.00+vat)</span>
                           <div className="text-[13px] text-slate-500 mt-0.5">Scale boundary map outlining property.</div>
                         </div>
                       </label>
@@ -795,7 +795,7 @@ export default function CreateOrderClient({ brands, resumeDraft, userRole = 'sal
                       <label className="flex items-start gap-2 cursor-pointer mb-2">
                         <input type="checkbox" className="mt-1 border-slate-300 rounded-sm text-[#0B1B3A] focus:ring-[#0B1B3A]" onChange={(e) => setField('addon_title_register', e.target.checked ? 'yes' : '')} />
                         <div>
-                          <span className="text-[#2c3e50] text-[15px] font-medium">Include Title Register (£36.00+vat)</span>
+                          <span className="text-[#2c3e50] text-[15px] font-medium">Include Title Register (£30.00+vat)</span>
                           <div className="text-[13px] text-slate-500 mt-0.5">Official copy confirming registered ownership.</div>
                         </div>
                       </label>
@@ -1856,8 +1856,8 @@ export default function CreateOrderClient({ brands, resumeDraft, userRole = 'sal
                   ...(upsells.faster_docs ? [{ id: 'faster-docs', item_type: 'Fast Track Fee', amount: UPSELL_PRICES.faster_docs }] : []),
                   ...(upsells.printed_copy ? [{ id: 'printed-copy', item_type: 'Printed Copy Fee', amount: UPSELL_PRICES.printed_copy }] : []),
                   ...(upsells.sms_updates ? [{ id: 'sms-updates', item_type: 'SMS Updates Fee', amount: UPSELL_PRICES.sms_updates }] : []),
-                  ...(formData.addon_title_plan === 'yes' ? [{ id: 'addon-title-plan', item_type: 'Title Plan', amount: 36.00 }] : []),
-                  ...(formData.addon_title_register === 'yes' ? [{ id: 'addon-title-register', item_type: 'Title Register', amount: 36.00 }] : []),
+                  ...(formData.addon_title_plan === 'yes' ? [{ id: 'addon-title-plan', item_type: 'Title Plan', amount: 30.00 }] : []),
+                  ...(formData.addon_title_register === 'yes' ? [{ id: 'addon-title-register', item_type: 'Title Register', amount: 30.00 }] : []),
                   ...(formData.addon_flood_risk === 'yes' ? [{ id: 'addon-flood-risk', item_type: 'Flood Risk', amount: 25.00 }] : []),
                 ]
                 setOrderItems(defaultItems)
