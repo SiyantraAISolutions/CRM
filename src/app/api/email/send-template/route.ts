@@ -5,7 +5,7 @@ import { generateProfessionalEmailHtml } from '@/lib/email-templates'
 
 export async function POST(req: NextRequest) {
   try {
-    const { to, subject, body, orderId, recipientName, brandName } = await req.json()
+    const { to, subject, body, orderId, recipientName, brandName, attachments } = await req.json()
 
     if (!to || !subject || !body) {
       return NextResponse.json({ error: 'Missing required fields: to, subject, body' }, { status: 400 })
@@ -84,6 +84,7 @@ export async function POST(req: NextRequest) {
       to,
       subject: finalSubject,
       html: formattedHtml,
+      attachments,
     })
 
     // Log the sent email in the database

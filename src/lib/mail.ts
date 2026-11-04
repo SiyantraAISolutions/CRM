@@ -1,13 +1,22 @@
 import nodemailer from 'nodemailer'
 import { createClient } from '@supabase/supabase-js'
+import fs from 'fs'
 
-interface EmailPayload {
+export interface EmailAttachment {
+  filename: string
+  content?: Buffer | string
+  path?: string
+  contentType?: string
+}
+
+export interface EmailPayload {
   to: string
   subject: string
   html: string
+  attachments?: EmailAttachment[]
 }
 
-export async function sendEmail({ to, subject, html }: EmailPayload) {
+export async function sendEmail({ to, subject, html, attachments }: EmailPayload) {
   const resendApiKey = process.env.RESEND_API_KEY
   let resendFrom = (process.env.RESEND_FROM || 'Online Land Registry <sales@onlinelandregistry.uk>').trim()
   // Strip any accidental surrounding quotes from Vercel env settings (e.g. "Name <email@domain.com>")
@@ -51,6 +60,21 @@ export async function sendEmail({ to, subject, html }: EmailPayload) {
   // 1. Send via Resend if API key configured
   if (resendApiKey) {
     try {
+      const resendAttachments = attachments?.map(att => {
+        let contentBase64 = ''
+        if (Buffer.isBuffer(att.content)) {
+          contentBase64 = att.content.toString('base64')
+        } else if (typeof att.content === 'string') {
+          contentBase64 = att.content
+        } else if (att.path && fs.existsSync(att.path)) {
+          contentBase64 = fs.readFileSync(att.path).toString('base64')
+        }
+        return {
+          filename: att.filename,
+          content: contentBase64,
+        }
+      })
+
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
@@ -63,6 +87,7 @@ export async function sendEmail({ to, subject, html }: EmailPayload) {
           subject: subject,
           html: html,
           text: html.replace(/<[^>]*>/g, ' '),
+          ...(resendAttachments && resendAttachments.length > 0 ? { attachments: resendAttachments } : {}),
         }),
       })
 
@@ -106,6 +131,7 @@ export async function sendEmail({ to, subject, html }: EmailPayload) {
         subject: subject,
         html: html,
         text: html.replace(/<[^>]*>/g, ' '),
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
       })
       console.log(`Email sent successfully to ${to} via SMTP`)
       return
