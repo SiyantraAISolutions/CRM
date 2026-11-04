@@ -315,6 +315,23 @@ export default function TemplatesClient() {
                     placeholder="Type the email body here..."
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm font-medium text-slate-800 leading-relaxed min-h-[300px] outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-400 transition-all resize-y"
                   />
+                  <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+                    <span className="font-semibold text-slate-600">Available Placeholders:</span>
+                    {['{{CustomerName}}', '{{BrandName}}', '{{OrderNumber}}', '{{Service}}', '{{address}}', '{{amount}}'].map(tag => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => {
+                          setBody(prev => prev + ' ' + tag)
+                          toast.success(`Inserted ${tag}`)
+                        }}
+                        className="bg-purple-50 hover:bg-purple-100 text-purple-700 font-mono text-[10px] px-2 py-0.5 rounded border border-purple-200 transition-colors cursor-pointer"
+                        title="Click to append to body"
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -425,11 +442,13 @@ export default function TemplatesClient() {
                       </div>
 
                       {/* Sign off */}
-                      <div className="mt-4 pt-3 border-t border-slate-100 text-slate-600 text-[11px]">
-                        <div>Kind regards,</div>
-                        <div className="font-bold text-slate-900">Customer Support Team</div>
-                        <div className="text-slate-500 text-[10px]">Online Land Registry</div>
-                      </div>
+                      {!/kind regards|warm regards|best regards|regards,/i.test(sendBody.toLowerCase()) && (
+                        <div className="mt-4 pt-3 border-t border-slate-100 text-slate-600 text-[11px]">
+                          <div>Kind regards,</div>
+                          <div className="font-bold text-slate-900">Customer Support Team</div>
+                          <div className="text-slate-500 text-[10px]">Online Land Registry</div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -444,16 +444,28 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
     let subj = t.subject || `Application Update - Order #${shortId}`
     let bod = t.body || `Thank you for your application (Reference #${shortId}).`
 
+    const brandName = (order.brand as any)?.name || 'Online Land Registry'
+    const serviceName = (order.form_type as any)?.name || (order.service as any)?.name || 'Land Registry Search'
+
     const replacements: Record<string, string> = {
       '{{first_name}}': order.first_name || 'Customer',
       '{{last_name}}': order.last_name || '',
       '{{full_name}}': fullName,
       '{{name}}': fullName,
       '{{customer_name}}': fullName,
+      '{{CustomerName}}': fullName,
+      '{{customerName}}': fullName,
       '{{email}}': order.email || '',
       '{{order_id}}': shortId,
       '{{order_number}}': shortId,
+      '{{OrderNumber}}': shortId,
       '{{reference}}': shortId,
+      '{{brand_name}}': brandName,
+      '{{BrandName}}': brandName,
+      '{{brandName}}': brandName,
+      '{{service}}': serviceName,
+      '{{Service}}': serviceName,
+      '{{service_name}}': serviceName,
       '{{title_number}}': order.title_number || 'N/A',
       '{{address}}': fullAddress || 'N/A',
       '{{property_address}}': fullAddress || 'N/A',
@@ -465,6 +477,9 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
       subj = subj.replaceAll(key, val)
       bod = bod.replaceAll(key, val)
     }
+
+    subj = subj.replace(/\{\{[^}]+\}\}/g, '').trim()
+    bod = bod.replace(/\{\{[^}]+\}\}/g, '').trim()
 
     setSendSubject(subj)
     setSendBody(bod)
@@ -487,7 +502,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
         // Fallback default if no template exists
         setSelectedTemplateId('')
         setSendSubject(`Update regarding your Application - Order #${shortId}`)
-        setSendBody(`Dear ${order.first_name || 'Customer'},\n\nWe are writing to update you on your application (Reference #${shortId}${fullAddress ? ` for ${fullAddress}` : ''}). Your request is currently being processed by our team.\n\nIf you have any questions or require any assistance, please do not hesitate to contact us.`)
+        setSendBody(`We are writing to update you on your application (Reference #${shortId}${fullAddress ? ` for ${fullAddress}` : ''}). Your request is currently being processed by our team.\n\nIf you have any questions or require any assistance, please do not hesitate to contact us.`)
       }
     }
 
@@ -2829,7 +2844,9 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                     </div>
                     {/* Body */}
                     <div className="p-5 space-y-3 text-xs text-slate-700">
-                      <p className="font-semibold text-slate-900">Dear {order.first_name || 'Customer'},</p>
+                      {!/^(dear|hi|hello)\b/i.test(sendBody.trim()) && (
+                        <p className="font-semibold text-slate-900">Dear {order.first_name || 'Customer'},</p>
+                      )}
                       <div className="whitespace-pre-wrap leading-relaxed">
                         {sendBody || <span className="italic text-slate-400">Select a template above to generate message...</span>}
                       </div>
@@ -2854,11 +2871,13 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                       </div>
 
                       {/* Sign off */}
-                      <div className="mt-4 pt-3 border-t border-slate-100 text-slate-600 text-[11px]">
-                        <div>Kind regards,</div>
-                        <div className="font-bold text-slate-900">Customer Support Team</div>
-                        <div className="text-slate-500 text-[10px]">{(order.brand as any)?.name || 'Online Land Registry'}</div>
-                      </div>
+                      {!/kind regards|warm regards|best regards|regards,/i.test(sendBody.toLowerCase()) && (
+                        <div className="mt-4 pt-3 border-t border-slate-100 text-slate-600 text-[11px]">
+                          <div>Kind regards,</div>
+                          <div className="font-bold text-slate-900">Customer Support Team</div>
+                          <div className="text-slate-500 text-[10px]">{(order.brand as any)?.name || 'Online Land Registry'}</div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

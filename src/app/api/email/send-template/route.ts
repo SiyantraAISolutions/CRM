@@ -52,11 +52,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Ensure subject placeholders are resolved
+    let finalSubject = subject
+    if (orderId && orderDetails) {
+      finalSubject = finalSubject
+        .replaceAll('{{OrderNumber}}', orderDetails.orderId || '')
+        .replaceAll('{{order_number}}', orderDetails.orderId || '')
+        .replaceAll('{{order_id}}', orderDetails.orderId || '')
+        .replaceAll('{{BrandName}}', resolvedBrandName)
+        .replaceAll('{{brand_name}}', resolvedBrandName)
+        .replaceAll('{{CustomerName}}', parsedRecipientName || 'Customer')
+        .replaceAll('{{customer_name}}', parsedRecipientName || 'Customer')
+        .replaceAll('{{Service}}', 'Land Registry Search')
+        .replaceAll('{{service}}', 'Land Registry Search')
+        .replace(/\{\{[^}]+\}\}/g, '')
+    }
+
     // Generate the professional HTML layout
     const formattedHtml = generateProfessionalEmailHtml({
       recipientName: parsedRecipientName || undefined,
       recipientEmail: to,
-      subject,
+      subject: finalSubject,
       bodyText: body,
       brandName: resolvedBrandName,
       orderDetails,
@@ -66,7 +82,7 @@ export async function POST(req: NextRequest) {
     // Send email using existing mail handler
     await sendEmail({
       to,
-      subject,
+      subject: finalSubject,
       html: formattedHtml,
     })
 
@@ -74,7 +90,7 @@ export async function POST(req: NextRequest) {
     try {
       await supabase.from('email_logs').insert({
         recipient: to,
-        subject,
+        subject: finalSubject,
         body,
         order_id: orderId || null,
         sent_at: new Date().toISOString(),

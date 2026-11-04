@@ -23,17 +23,62 @@ export function generateProfessionalEmailHtml({
   supportPhone = '0333 577 0077',
   supportEmail = 'support@onlinelandregistry.uk',
 }: ProfessionalEmailParams): string {
+  let processedBody = bodyText
+
+  // Sanitize and replace template placeholders in case caller didn't
+  const replacements: Record<string, string> = {
+    '{{CustomerName}}': recipientName || 'Customer',
+    '{{customer_name}}': recipientName || 'Customer',
+    '{{customerName}}': recipientName || 'Customer',
+    '{{first_name}}': recipientName?.split(' ')[0] || 'Customer',
+    '{{last_name}}': recipientName?.split(' ').slice(1).join(' ') || '',
+    '{{full_name}}': recipientName || 'Customer',
+    '{{name}}': recipientName || 'Customer',
+    '{{BrandName}}': brandName,
+    '{{brand_name}}': brandName,
+    '{{brandName}}': brandName,
+    '{{OrderNumber}}': orderDetails?.orderId || '',
+    '{{order_number}}': orderDetails?.orderId || '',
+    '{{order_id}}': orderDetails?.orderId || '',
+    '{{reference}}': orderDetails?.orderId || '',
+    '{{title_number}}': orderDetails?.titleNumber || 'N/A',
+    '{{address}}': orderDetails?.address || 'N/A',
+    '{{property_address}}': orderDetails?.address || 'N/A',
+    '{{amount}}': orderDetails?.amount || '',
+    '{{support_phone}}': supportPhone,
+    '{{support_email}}': supportEmail,
+  }
+
+  for (const [key, val] of Object.entries(replacements)) {
+    processedBody = processedBody.replaceAll(key, val)
+  }
+
+  // Handle service placeholders and strip any lingering unrecognized {{...}} tags
+  processedBody = processedBody.replace(/\{\{service(_name)?\}\}/gi, 'Land Registry Search')
+  processedBody = processedBody.replace(/\{\{[^}]+\}\}/g, '')
+
   // Process body text paragraphs
-  const paragraphs = bodyText
+  const paragraphs = processedBody
     .split(/\n+/)
     .map(p => p.trim())
     .filter(Boolean)
     .map(p => `<p style="margin: 0 0 16px 0; line-height: 1.6; color: #334155; font-size: 15px;">${p}</p>`)
     .join('')
 
-  const greetingHtml = recipientName
+  // Only render outer greeting if body doesn't already start with Dear / Hi / Hello
+  const hasGreeting = /^(dear|hi|hello)\b/i.test(processedBody.trim())
+  const greetingHtml = (!hasGreeting && recipientName)
     ? `<p style="margin: 0 0 16px 0; line-height: 1.6; color: #0f172a; font-size: 16px; font-weight: 600;">Dear ${recipientName},</p>`
     : ''
+
+  // Only render default sign-off if body doesn't already have one
+  const hasSignOff = /kind regards|warm regards|best regards|regards,/i.test(processedBody.toLowerCase())
+  const signOffHtml = !hasSignOff ? `
+              <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #e2e8f0; color: #475569; font-size: 14px;">
+                <p style="margin: 0; font-weight: 600;">Kind regards,</p>
+                <p style="margin: 4px 0 0 0; color: #0b1b3a; font-weight: 700;">Customer Support Team</p>
+                <p style="margin: 2px 0 0 0; color: #64748b; font-size: 12px;">${brandName}</p>
+              </div>` : ''
 
   const orderBoxHtml = orderDetails && (orderDetails.orderId || orderDetails.address || orderDetails.titleNumber)
     ? `
@@ -99,11 +144,7 @@ export function generateProfessionalEmailHtml({
               </div>
 
               <!-- Sign Off -->
-              <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #e2e8f0; color: #475569; font-size: 14px;">
-                <p style="margin: 0; font-weight: 600;">Kind regards,</p>
-                <p style="margin: 4px 0 0 0; color: #0b1b3a; font-weight: 700;">Customer Support Team</p>
-                <p style="margin: 2px 0 0 0; color: #64748b; font-size: 12px;">${brandName}</p>
-              </div>
+              ${signOffHtml}
             </td>
           </tr>
 
