@@ -1435,20 +1435,9 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
       )}
 
       {/* Order heading */}
-      <div className="px-10 pt-10 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-[24px] font-bold text-[#0B1B3A] tracking-tight mb-2">{headingText}</h1>
-          <div className="text-[14px] text-slate-500">{formatDate(order.created_at)}</div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowSendTemplateModal(true)}
-            className="bg-[#6366f1] hover:bg-[#4f46e5] text-white text-[14px] font-semibold px-5 py-2.5 rounded-xl transition-all shadow-sm shadow-indigo-600/20 flex items-center gap-2 cursor-pointer"
-          >
-            <Mail className="h-4 w-4" />
-            Send Template Email
-          </button>
-        </div>
+      <div className="px-10 pt-10 pb-4">
+        <h1 className="text-[24px] font-bold text-[#0B1B3A] tracking-tight mb-2">{headingText}</h1>
+        <div className="text-[14px] text-slate-500">{formatDate(order.created_at)}</div>
       </div>
 
       {/* Tabs */}
@@ -2161,7 +2150,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                   className="bg-[#6366f1] hover:bg-[#4f46e5] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors flex items-center gap-2 cursor-pointer"
                 >
                   <Mail className="h-4 w-4" />
-                  Send Template Email
+                  Send Mail
                 </button>
               </div>
             )}
@@ -3074,14 +3063,6 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                     </div>
                   </div>
                 </div>
-              </div>
-
-              {/* Placeholder hint */}
-              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 flex items-start gap-2.5">
-                <Mail className="h-4 w-4 text-indigo-600 mt-0.5 flex-shrink-0" />
-                <p className="text-[11px] font-medium text-indigo-800 leading-relaxed">
-                  Templates support placeholders: <code className="bg-indigo-100 px-1 rounded text-[10px]">{'{{first_name}}'}</code> <code className="bg-indigo-100 px-1 rounded text-[10px]">{'{{last_name}}'}</code> <code className="bg-indigo-100 px-1 rounded text-[10px]">{'{{order_id}}'}</code> <code className="bg-indigo-100 px-1 rounded text-[10px]">{'{{amount}}'}</code> — these are auto-replaced with order data.
-                </p>
               </div>
             </div>
 
