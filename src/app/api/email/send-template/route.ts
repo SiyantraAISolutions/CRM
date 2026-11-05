@@ -68,6 +68,32 @@ export async function POST(req: NextRequest) {
         .replace(/\{\{[^}]+\}\}/g, '')
     }
 
+    // Process attachments (resolve from Supabase storage if storagePath is provided)
+    let processedAttachments = attachments || []
+    if (Array.isArray(processedAttachments) && processedAttachments.length > 0) {
+      processedAttachments = await Promise.all(
+        processedAttachments.map(async (att: any) => {
+          if (!att.content && att.storagePath) {
+            try {
+              const { data, error } = await supabase.storage
+                .from('order-documents')
+                .download(att.storagePath)
+              if (data) {
+                const arrayBuf = await data.arrayBuffer()
+                return {
+                  filename: att.filename || 'Document.pdf',
+                  content: Buffer.from(arrayBuf).toString('base64'),
+                }
+              }
+            } catch (err) {
+              console.error('Failed to download storage attachment:', err)
+            }
+          }
+          return att
+        })
+      )
+    }
+
     // Generate the professional HTML layout
     const formattedHtml = generateProfessionalEmailHtml({
       recipientName: parsedRecipientName || undefined,
@@ -84,7 +110,7 @@ export async function POST(req: NextRequest) {
       to,
       subject: finalSubject,
       html: formattedHtml,
-      attachments,
+      attachments: processedAttachments,
     })
 
     // Log the sent email in the database

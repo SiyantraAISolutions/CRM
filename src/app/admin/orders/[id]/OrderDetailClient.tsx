@@ -406,6 +406,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
   const [sendSubject, setSendSubject] = useState('')
   const [sendBody, setSendBody] = useState('')
   const [isSendingEmail, setIsSendingEmail] = useState(false)
+  const [selectedAttachments, setSelectedAttachments] = useState<{ filename: string; storagePath?: string; content?: string }[]>([])
 
   // Monitor Tracking State
   const [monitorStage, setMonitorStage] = useState((order as any).monitor_stage || 'awaiting')
@@ -524,6 +525,16 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
     }
   }
 
+  // Open Send Template Modal with pre-attached file and optional template
+  const openSendEmailWithAttachment = (att: { name: string; url: string; submission_title?: string }) => {
+    setSelectedAttachments([{ filename: att.submission_title || att.name, storagePath: att.url }])
+    const pdfTemplate = emailTemplates.find(t => t.name.toLowerCase().includes('pdf') || t.name.toLowerCase().includes('deed')) || emailTemplates[0]
+    if (pdfTemplate) {
+      applyTemplate(pdfTemplate)
+    }
+    setShowSendTemplateModal(true)
+  }
+
   async function handleSendTemplateEmail() {
     if (!sendTo.trim()) { toast.error('Please enter a recipient email'); return }
     if (!sendSubject.trim()) { toast.error('Please enter a subject'); return }
@@ -536,15 +547,24 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
       const res = await fetch('/api/email/send-template', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: sendTo.trim(), subject: sendSubject.trim(), body: sendBody.trim(), orderId: order.id }),
+        body: JSON.stringify({ 
+          to: sendTo.trim(), 
+          subject: sendSubject.trim(), 
+          body: sendBody.trim(), 
+          orderId: order.id,
+          attachments: selectedAttachments,
+        }),
       })
       const result = await res.json()
       if (!res.ok) {
         toast.error(result.error || 'Failed to send email')
       } else {
         toast.success(`Email sent to ${sendTo}`)
-        await addTimelineNote(`Template email sent to ${sendTo} — Subject: ${sendSubject}`, 'Email Sent')
+        const attCount = selectedAttachments.length
+        const attLabel = attCount > 0 ? ` with ${attCount} attachment${attCount > 1 ? 's' : ''}` : ''
+        await addTimelineNote(`Template email sent to ${sendTo}${attLabel} — Subject: ${sendSubject}`, 'Email Sent')
         setShowSendTemplateModal(false)
+        setSelectedAttachments([])
       }
     } catch { toast.error('Network error') }
     finally { setIsSendingEmail(false) }
@@ -1415,9 +1435,20 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
       )}
 
       {/* Order heading */}
-      <div className="px-10 pt-10 pb-4">
-        <h1 className="text-[24px] font-bold text-[#0B1B3A] tracking-tight mb-2">{headingText}</h1>
-        <div className="text-[14px] text-slate-500">{formatDate(order.created_at)}</div>
+      <div className="px-10 pt-10 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-[24px] font-bold text-[#0B1B3A] tracking-tight mb-2">{headingText}</h1>
+          <div className="text-[14px] text-slate-500">{formatDate(order.created_at)}</div>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowSendTemplateModal(true)}
+            className="bg-[#6366f1] hover:bg-[#4f46e5] text-white text-[14px] font-semibold px-5 py-2.5 rounded-xl transition-all shadow-sm shadow-indigo-600/20 flex items-center gap-2 cursor-pointer"
+          >
+            <Mail className="h-4 w-4" />
+            Send Template Email
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -2078,48 +2109,52 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
             )}
 
             {/* Status Actions */}
-            {isAdminOrDirector && !isCompleted && (
+            {isAdminOrDirector && (
               <div className="flex flex-wrap items-center gap-3 mt-16">
-                {(status !== 'paid' && status !== 'processing') && !showPaymentForm && (
-                  <button
-                    onClick={startTakePayment}
-                    className="bg-[#28a745] hover:bg-[#218838] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors flex items-center gap-2 cursor-pointer"
-                  >
-                    <CreditCard className="h-4 w-4" />
-                    Take Payment
-                  </button>
-                )}
-                {(status !== 'abandoned' && status !== 'dead' && status !== 'paid' && status !== 'processing') && (
-                  <button
-                    onClick={() => setOrderStatus('abandoned')}
-                    className="bg-[#f59e0b] hover:bg-[#d97706] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
-                  >
-                    Abandon
-                  </button>
-                )}
-                {(status !== 'dead' && status !== 'paid' && status !== 'processing') && (
-                  <button
-                    onClick={() => setOrderStatus('dead')}
-                    className="bg-[#dc3545] hover:bg-[#c82333] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
-                  >
-                    Mark Dead
-                  </button>
-                )}
-                {(status === 'abandoned' || status === 'dead') && (
-                  <button
-                    onClick={() => setOrderStatus('processing')}
-                    className="bg-[#28a745] hover:bg-[#218838] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
-                  >
-                    Restore Application
-                  </button>
-                )}
-                {(status !== 'paid' && status !== 'processing' && currentRole !== 'admin') && (
-                  <button
-                    onClick={() => setOrderStatus('no_answer')}
-                    className="bg-[#ffc107] hover:bg-[#e0a800] text-[#212529] text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
-                  >
-                    No Answer / Non-UK Phone Number
-                  </button>
+                {!isCompleted && (
+                  <>
+                    {(status !== 'paid' && status !== 'processing') && !showPaymentForm && (
+                      <button
+                        onClick={startTakePayment}
+                        className="bg-[#28a745] hover:bg-[#218838] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors flex items-center gap-2 cursor-pointer"
+                      >
+                        <CreditCard className="h-4 w-4" />
+                        Take Payment
+                      </button>
+                    )}
+                    {(status !== 'abandoned' && status !== 'dead' && status !== 'paid' && status !== 'processing') && (
+                      <button
+                        onClick={() => setOrderStatus('abandoned')}
+                        className="bg-[#f59e0b] hover:bg-[#d97706] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
+                      >
+                        Abandon
+                      </button>
+                    )}
+                    {(status !== 'dead' && status !== 'paid' && status !== 'processing') && (
+                      <button
+                        onClick={() => setOrderStatus('dead')}
+                        className="bg-[#dc3545] hover:bg-[#c82333] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
+                      >
+                        Mark Dead
+                      </button>
+                    )}
+                    {(status === 'abandoned' || status === 'dead') && (
+                      <button
+                        onClick={() => setOrderStatus('processing')}
+                        className="bg-[#28a745] hover:bg-[#218838] text-white text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
+                      >
+                        Restore Application
+                      </button>
+                    )}
+                    {(status !== 'paid' && status !== 'processing' && currentRole !== 'admin') && (
+                      <button
+                        onClick={() => setOrderStatus('no_answer')}
+                        className="bg-[#ffc107] hover:bg-[#e0a800] text-[#212529] text-[15px] font-medium px-8 py-3 rounded-md transition-colors cursor-pointer"
+                      >
+                        No Answer / Non-UK Phone Number
+                      </button>
+                    )}
+                  </>
                 )}
                 <button
                   onClick={() => setShowSendTemplateModal(true)}
@@ -2259,7 +2294,25 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
 
             {/* Related Email Template Section */}
             <div className="border-t border-slate-200 pt-8">
-              <h3 className="text-[16px] font-bold text-[#0B1B3A] mb-4">Related Email Template Preview</h3>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-[16px] font-bold text-[#0B1B3A]">Related Email Template Preview</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Select and send standard customer communications.</p>
+                </div>
+                {selectedTemplateId && (
+                  <button
+                    onClick={() => {
+                      const selectedTemplate = emailTemplates.find(t => t.id === selectedTemplateId)
+                      if (selectedTemplate) applyTemplate(selectedTemplate)
+                      setShowSendTemplateModal(true)
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-sm shadow-indigo-600/20 transition-all cursor-pointer self-start sm:self-auto"
+                  >
+                    <Send className="h-4 w-4" />
+                    Send This Email to Customer
+                  </button>
+                )}
+              </div>
               
               <div className="mb-4">
                 <label className="block text-[13px] font-semibold text-slate-600 mb-2">Select Email Template</label>
@@ -2308,17 +2361,29 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                       <div>
                         <div className="flex justify-between items-center mb-1">
                           <label className="block text-[12px] font-extrabold text-slate-500 uppercase tracking-wider">Email Body</label>
-                          <button
-                            onClick={async () => {
-                              await navigator.clipboard.writeText(renderedBody)
-                              setCopiedBody(true)
-                              toast.success('Email body copied!')
-                              setTimeout(() => setCopiedBody(false), 2000)
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1"
-                          >
-                            {copiedBody ? 'Copied!' : 'Copy Body'}
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={async () => {
+                                await navigator.clipboard.writeText(renderedBody)
+                                setCopiedBody(true)
+                                toast.success('Email body copied!')
+                                setTimeout(() => setCopiedBody(false), 2000)
+                              }}
+                              className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1"
+                            >
+                              {copiedBody ? 'Copied!' : 'Copy Body'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                applyTemplate(selectedTemplate)
+                                setShowSendTemplateModal(true)
+                              }}
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1 rounded-md flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                            >
+                              <Send className="h-3 w-3" />
+                              Send Email
+                            </button>
+                          </div>
                         </div>
                         <div className="bg-white border border-slate-200 rounded-lg p-5 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed shadow-sm font-medium">
                           {renderedBody}
@@ -2390,6 +2455,14 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                       </div>
                       
                       <div className="flex items-center gap-2 self-end sm:self-center">
+                        <button
+                          onClick={() => openSendEmailWithAttachment(att)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs transition-colors cursor-pointer"
+                          title="Attach and send this document to customer via email"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          <span>Email to Customer</span>
+                        </button>
                         <button
                           onClick={() => handleViewAttachment(att.url)}
                           className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors"
@@ -2829,6 +2902,108 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                 />
               </div>
 
+              {/* Attachments Section */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <FileText className="h-4 w-4 text-indigo-600" />
+                    <span>Email Attachments (PDF / Deeds)</span>
+                  </label>
+                  {selectedAttachments.length > 0 && (
+                    <span className="text-[11px] font-bold text-indigo-700 bg-indigo-100/80 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                      {selectedAttachments.length} attached
+                    </span>
+                  )}
+                </div>
+
+                {/* Available Order Attachments */}
+                {submissionReqs.attachments && submissionReqs.attachments.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-slate-500 mb-2">Check documents from this order to attach:</p>
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                      {submissionReqs.attachments.map((att: any, idx: number) => {
+                        const isAttached = selectedAttachments.some(a => a.storagePath === att.url || a.filename === (att.submission_title || att.name))
+                        return (
+                          <label
+                            key={idx}
+                            className={cn(
+                              "flex items-center gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition-all",
+                              isAttached 
+                                ? "bg-indigo-50 border-indigo-300 text-indigo-950 font-bold shadow-xs" 
+                                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100/70"
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isAttached}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedAttachments(prev => [...prev, { filename: att.submission_title || att.name, storagePath: att.url }])
+                                } else {
+                                  setSelectedAttachments(prev => prev.filter(a => a.storagePath !== att.url && a.filename !== (att.submission_title || att.name)))
+                                }
+                              }}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                            />
+                            <FileText className="h-4 w-4 text-indigo-500 shrink-0" />
+                            <span className="truncate flex-1">{att.submission_title || att.name}</span>
+                            <span className="text-[10px] text-slate-400 uppercase font-mono">{att.name.split('.').pop()}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Attach Local File */}
+                <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center gap-2">
+                  <input
+                    type="file"
+                    id="email-modal-file-picker"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      const reader = new FileReader()
+                      reader.onload = () => {
+                        const base64 = (reader.result as string).split(',')[1]
+                        setSelectedAttachments(prev => [...prev, { filename: file.name, content: base64 }])
+                        toast.success(`Attached ${file.name}`)
+                      }
+                      reader.readAsDataURL(file)
+                      e.target.value = ''
+                    }}
+                  />
+                  <label
+                    htmlFor="email-modal-file-picker"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-dashed border-indigo-300 hover:border-indigo-500 hover:bg-indigo-50 text-indigo-700 rounded-lg text-xs font-bold cursor-pointer transition-colors shadow-2xs"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    Attach local file from computer...
+                  </label>
+                </div>
+
+                {/* List of currently attached files */}
+                {selectedAttachments.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {selectedAttachments.map((att, i) => (
+                      <span key={i} className="inline-flex items-center gap-1.5 bg-white text-indigo-900 text-[11px] font-bold px-2.5 py-1 rounded-lg border border-indigo-200 shadow-2xs">
+                        <FileText className="h-3.5 w-3.5 text-indigo-600" />
+                        <span className="max-w-[200px] truncate">{att.filename}</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAttachments(prev => prev.filter((_, idx) => idx !== i))}
+                          className="text-slate-400 hover:text-rose-600 ml-1 p-0.5 rounded transition-colors"
+                          title="Remove attachment"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Live Professional Email Preview */}
               <div>
                 <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-2 block px-1 flex items-center justify-between">
@@ -2863,6 +3038,24 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                           {order.amount_total && <div><span className="text-slate-500">Amount:</span> <span className="font-semibold">{formatCurrency(order.amount_total)}</span></div>}
                         </div>
                       </div>
+
+                      {/* Attached Documents in Preview */}
+                      {selectedAttachments.length > 0 && (
+                        <div className="mt-3 p-3 bg-indigo-50/80 border border-indigo-200 rounded-lg text-[11px]">
+                          <div className="font-bold text-indigo-950 uppercase tracking-wider text-[9px] mb-1.5 flex items-center gap-1.5">
+                            <FileText className="h-3 w-3 text-indigo-600" />
+                            <span>Attached Documents ({selectedAttachments.length})</span>
+                          </div>
+                          <ul className="space-y-1">
+                            {selectedAttachments.map((att, idx) => (
+                              <li key={idx} className="text-slate-700 font-semibold flex items-center gap-1.5">
+                                <span className="text-indigo-500 font-bold">•</span>
+                                <span className="truncate">{att.filename}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
 
                       {/* Queries Banner */}
                       <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 text-[11px]">
