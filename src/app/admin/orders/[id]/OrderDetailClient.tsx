@@ -496,9 +496,24 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
 
     setSendTo(order.email || '')
 
+    // Auto-attach order attachments if none selected yet
+    const orderAttachments = submissionReqs.attachments || []
+    if (selectedAttachments.length === 0 && orderAttachments.length > 0) {
+      setSelectedAttachments(orderAttachments.map((att: any) => ({
+        filename: att.submission_title || att.name,
+        storagePath: att.url,
+      })))
+    }
+
     const initTemplates = (templatesList: { id: string; name: string; subject: string; body: string }[]) => {
-      if (templatesList.length > 0) {
-        applyTemplate(templatesList[0])
+      // If there are order attachments, prefer Deed/PDF template
+      const hasAttachments = orderAttachments.length > 0 || selectedAttachments.length > 0
+      const preferredTemplate = hasAttachments
+        ? templatesList.find(t => t.name.toLowerCase().includes('pdf') || t.name.toLowerCase().includes('deed')) || templatesList[0]
+        : templatesList[0]
+
+      if (preferredTemplate) {
+        applyTemplate(preferredTemplate)
       } else {
         // Fallback default if no template exists
         setSelectedTemplateId('')
@@ -701,7 +716,7 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
 
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
 
-  const handleUploadAttachment = async (file: File, submissionTitle?: string, submissionType?: string) => {
+  const handleUploadAttachment = async (file: File, submissionTitle?: string, submissionType?: string, autoOpenEmail?: boolean) => {
     setUploadingAttachment(true)
     try {
       const fileExt = file.name.split('.').pop()
@@ -747,6 +762,18 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
           `Uploaded attachment: ${submissionTitle || file.name} (${submissionType || 'File Upload'}) by ${currentName || 'Admin'}`, 
           'Upload'
         )
+
+        if (autoOpenEmail) {
+          setShowUploadModal(false)
+          setSelectedFile(null)
+          setUploadTitle('')
+          setUploadType('File Upload')
+          openSendEmailWithAttachment({
+            name: file.name,
+            url: filePath,
+            submission_title: submissionTitle || file.name,
+          })
+        }
       }
     } catch (err) {
       console.error(err)
@@ -2651,11 +2678,23 @@ export default function OrderDetailClient({ order: initialOrder, relatedOrders, 
                     </button>
                     <button 
                       type="submit" 
-                      disabled={uploadingAttachment}
-                      className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-xs font-bold px-6 py-2.5 rounded-lg transition-all flex items-center gap-2 disabled:opacity-50"
+                      disabled={uploadingAttachment || !selectedFile}
+                      className="bg-[#0B1B3A] hover:bg-[#132c57] text-white text-xs font-bold px-5 py-2.5 rounded-lg transition-all flex items-center gap-2 disabled:opacity-50"
                     >
                       {uploadingAttachment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                       Add Submission
+                    </button>
+                    <button 
+                      type="button" 
+                      disabled={uploadingAttachment || !selectedFile}
+                      onClick={async () => {
+                        if (!selectedFile) return
+                        await handleUploadAttachment(selectedFile, uploadTitle, uploadType, true)
+                      }}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-5 py-2.5 rounded-lg transition-all flex items-center gap-2 disabled:opacity-50 shadow-sm shadow-indigo-600/20 cursor-pointer"
+                    >
+                      {uploadingAttachment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                      Upload & Email to Customer
                     </button>
                   </div>
                 </div>
